@@ -203,9 +203,5 @@ func =
       let _ = (buf := tmp) in
         tmp;
       
-fork func unit;
-
-
-!buf;
-5;
-
+t = fork func unit;
+wait t;

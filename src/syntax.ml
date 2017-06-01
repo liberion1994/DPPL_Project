@@ -21,12 +21,15 @@ type ty =
   | TySource of ty
   | TySink of ty
   | TyNat
+  | TyThread of ty
 
 type term =
     TmVar of info * int * int
   | TmAbs of info * string * ty * term
   | TmApp of info * term * term
   | TmForkApp of info * term * term
+  | TmWait of info * term
+  | TmThread of info * Thread.t * term Event.channel
   | TmTrue of info
   | TmFalse of info
   | TmIf of info * term * term * term
@@ -122,6 +125,7 @@ let tymap onvar c tyT =
   | TySource(tyT1) -> TySource(walk c tyT1)
   | TySink(tyT1) -> TySink(walk c tyT1)
   | TyNat -> TyNat
+  | TyThread(tyT1) -> TyThread(walk c tyT1)
   in walk c tyT
 
 let tmmap onvar ontype c t = 
@@ -131,6 +135,8 @@ let tmmap onvar ontype c t =
   | TmAbs(fi,x,tyT1,t2) -> TmAbs(fi,x,ontype c tyT1,walk (c+1) t2)
   | TmApp(fi,t1,t2) -> TmApp(fi,walk c t1,walk c t2)
   | TmForkApp(fi,t1,t2) -> TmForkApp(fi,walk c t1,walk c t2)
+  | TmWait(fi,t1) -> TmWait(fi,walk c t1)
+  | TmThread(fi,_,_) as t -> t
   | TmTrue(fi) as t -> t
   | TmFalse(fi) as t -> t
   | TmIf(fi,t1,t2,t3) -> TmIf(fi,walk c t1,walk c t2,walk c t3)
@@ -244,6 +250,8 @@ let tmInfo t = match t with
   | TmAbs(fi,_,_,_) -> fi
   | TmApp(fi,_,_) -> fi
   | TmForkApp(fi,_,_) -> fi
+  | TmWait(fi,_) -> fi
+  | TmThread(fi,_,_) -> fi
   | TmTrue(fi) -> fi
   | TmFalse(fi) -> fi
   | TmIf(fi,_,_,_) -> fi
@@ -297,6 +305,7 @@ let rec printty_Type outer ctx tyT = match tyT with
     TyRef(tyT) -> pr "Ref "; printty_AType false ctx tyT
   | TySource(tyT) -> pr "Source "; printty_AType false ctx tyT
   | TySink(tyT) -> pr "Sink "; printty_AType false ctx tyT
+  | TyThread(tyT) -> pr "Thread "; printty_AType false ctx tyT
   | tyT -> printty_ArrowType outer ctx tyT
 
 and printty_ArrowType outer ctx  tyT = match tyT with 
@@ -494,6 +503,10 @@ and printtm_ATerm outer ctx t = match t with
        | TmSucc(_,s) -> f (n+1) s
        | _ -> (pr "(succ "; printtm_ATerm false ctx t1; pr ")")
      in f 1 t1
+  | TmThread(_,thread,_) ->
+      obox0();
+      print_string ("thread<" ^ (string_of_int (Thread.id thread)) ^ ">");
+      cbox()
   | t -> pr "("; printtm_Term outer ctx t; pr ")"
 
 let printtm ctx t = printtm_Term true ctx t 

@@ -102,6 +102,7 @@ open Syntax
 
 /*newly introduced*/
 %token <Support.Error.info> FORK
+%token <Support.Error.info> WAIT
 
 /* ---------------------------------------------------------------------- */
 /* The starting production of the generated parser is the syntactic class
@@ -236,6 +237,8 @@ Term :
           TmCase($1, $2 ctx, $4 ctx) }
   | AppTerm COLONEQ AppTerm
       { fun ctx -> TmAssign($2, $1 ctx, $3 ctx) }
+  | WAIT Term
+      { fun ctx -> TmWait($1,$2 ctx) }
 
 AppTerm :
     PathTerm

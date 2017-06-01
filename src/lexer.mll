@@ -45,6 +45,7 @@ let reservedWords = [
 
   (*newly introduced*)
   ("fork", fun i -> Parser.FORK i);
+  ("wait", fun i -> Parser.WAIT i);
   
   (* Symbols *)
   ("_", fun i -> Parser.USCORE i);

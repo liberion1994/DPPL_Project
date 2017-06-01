@@ -47,14 +47,23 @@ let rec eval1 ctx store t = match t with
   | TmApp(fi,t1,t2) ->
       let t1',store' = eval1 ctx store t1 in
       TmApp(fi, t1', t2), store'
-  | TmForkApp(fi,TmAbs(_,x,tyT11,t12),v2) when isval ctx v2 ->
-      termSubstTop v2 t12, store
-  | TmForkApp(fi,v1,t2) when isval ctx v1 ->
-      let t2',store' = eval1 ctx store t2 in
-      TmForkApp(fi, v1, t2'), store'
   | TmForkApp(fi,t1,t2) ->
-      let t1',store' = eval1 ctx store t1 in
-      TmForkApp(fi, t1', t2), store'
+      let channel = Event.new_channel () in
+      let th = Thread.create (fun _ ->
+        try let t1',store' = eval ctx store (TmApp(fi,t1,t2)) in
+          (* should communicate to set store here *)
+          let e = Event.send channel t1' in 
+          let _ = Event.sync e in ()
+        with NoRuleApplies -> 
+          print_string "No rules apply in another thread") () in
+      TmThread(fi,th,channel), store
+  | TmWait(fi,t1) ->
+      let t1',store' = eval1 ctx store t1 in (match t1' with
+        TmThread(fi,thread,channel) -> 
+          let e = Event.receive channel in
+          let ret = Event.sync e in ret, store'
+      | _ -> 
+          raise NoRuleApplies)
   | TmIf(_,TmTrue(_),t2,t3) ->
       t2, store
   | TmIf(_,TmFalse(_),t2,t3) ->
@@ -162,8 +171,7 @@ let rec eval1 ctx store t = match t with
       TmIsZero(fi, t1'), store'
   | _ -> 
       raise NoRuleApplies
-
-let rec eval ctx store t =
+and eval ctx store t =
   try let t',store' = eval1 ctx store t
       in eval ctx store' t'
   with NoRuleApplies -> t,store
@@ -386,10 +394,17 @@ let rec typeof ctx t =
       let tyT2 = typeof ctx t2 in
       (match simplifyty ctx tyT1 with
           TyArr(tyT11,tyT12) ->
-            if subtype ctx tyT2 tyT11 then tyT12
+            if subtype ctx tyT2 tyT11 then TyThread(tyT12)
             else error fi "parameter type mismatch" 
         | TyBot -> TyBot
         | _ -> error fi "arrow type expected")
+  | TmWait(fi,t1) ->
+      let tyT1 = typeof ctx t1 in
+      (match tyT1 with
+          TyThread(tyT11) -> tyT11
+        | _ -> error fi "thread type expected")
+  | TmThread(fi,_,_) ->
+      error fi "no thread term should be explicit declared"
   | TmTrue(fi) -> 
       TyBool
   | TmFalse(fi) -> 

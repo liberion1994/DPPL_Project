@@ -72,47 +72,15 @@ let prbindingty ctx b = match b with
   | TyAbbBind(tyT) -> pr ":: *"
 
 let rec process_command (ctx,store) cmd = match cmd with
-  | Eval(fi,t) -> (match t with 
-      TmForkApp(fi,_,_) -> 
-        let tyT = typeof ctx t in
-        let process_fork_app () = 
-          let t',store  = eval ctx store t in
-          (*should communicate to set store here*)
-          print_string ("Thread_" ^ string_of_int (Thread.id (Thread.self ())) ^ "\t");
-          printtm_ATerm true ctx t'; 
-          print_break 1 2;
-          pr ": ";
-          printty ctx tyT;
-          force_newline();
-          (ctx,store) in
-        let _ = Thread.create (fun _ -> process_fork_app ()) () in
-        let ret = process_fork_app () in Thread.delay 0.01; ret
-    | _ -> 
+  | Eval(fi,t) -> 
         let tyT = typeof ctx t in
         let t',store  = eval ctx store t in
-        print_string ("Thread_" ^ string_of_int (Thread.id (Thread.self ())) ^ "\t");
         printtm_ATerm true ctx t'; 
         print_break 1 2;
         pr ": ";
         printty ctx tyT;
         force_newline();
-        (ctx,store))
-  | Bind(fi,x,bind) -> 
-      let bind = checkbinding fi ctx bind in
-      let bind',store' = evalbinding ctx store bind in
-      pr x; pr " "; prbindingty ctx bind'; force_newline();
-      addbinding ctx x bind', (shiftstore 1 store')
-
-let rec process_typing (ctx,store) cmd = match cmd with
-  | Eval(fi,t) -> 
-      let tyT = typeof ctx t in
-      let t',store  = eval ctx store t in
-      printtm_ATerm true ctx t'; 
-      print_break 1 2;
-      pr ": ";
-      printty ctx tyT;
-      force_newline();
-      (ctx,store)
+        (ctx,store)
   | Bind(fi,x,bind) -> 
       let bind = checkbinding fi ctx bind in
       let bind',store' = evalbinding ctx store bind in
