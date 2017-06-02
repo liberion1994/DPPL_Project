@@ -237,8 +237,6 @@ Term :
           TmCase($1, $2 ctx, $4 ctx) }
   | AppTerm COLONEQ AppTerm
       { fun ctx -> TmAssign($2, $1 ctx, $3 ctx) }
-  | WAIT Term
-      { fun ctx -> TmWait($1,$2 ctx) }
 
 AppTerm :
     PathTerm
@@ -248,11 +246,6 @@ AppTerm :
           let e1 = $1 ctx in
           let e2 = $2 ctx in
           TmApp(tmInfo e1,e1,e2) }
-  | FORK AppTerm PathTerm
-      { fun ctx ->
-          let e1 = $2 ctx in
-          let e2 = $3 ctx in
-          TmForkApp(tmInfo e1,e1,e2) }
   | FIX PathTerm
       { fun ctx ->
           TmFix($1, $2 ctx) }
@@ -268,6 +261,10 @@ AppTerm :
       { fun ctx -> TmPred($1, $2 ctx) }
   | ISZERO PathTerm
       { fun ctx -> TmIsZero($1, $2 ctx) }
+  | WAIT Term
+      { fun ctx -> TmWait($1, $2 ctx) }
+  | FORK Term
+      { fun ctx -> TmFork($1, $2 ctx) }
 
 PathTerm :
     PathTerm DOT LCID

@@ -26,7 +26,7 @@ type term =
     TmVar of info * int * int
   | TmAbs of info * string * ty * term
   | TmApp of info * term * term
-  | TmForkApp of info * term * term
+  | TmFork of info * term
   | TmWait of info * term
   | TmThread of info * Thread.t * term Event.channel
   | TmTrue of info

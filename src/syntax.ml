@@ -27,7 +27,7 @@ type term =
     TmVar of info * int * int
   | TmAbs of info * string * ty * term
   | TmApp of info * term * term
-  | TmForkApp of info * term * term
+  | TmFork of info * term
   | TmWait of info * term
   | TmThread of info * Thread.t * term Event.channel
   | TmTrue of info
@@ -134,7 +134,7 @@ let tmmap onvar ontype c t =
   | TmVar(fi,x,n) -> onvar fi c x n
   | TmAbs(fi,x,tyT1,t2) -> TmAbs(fi,x,ontype c tyT1,walk (c+1) t2)
   | TmApp(fi,t1,t2) -> TmApp(fi,walk c t1,walk c t2)
-  | TmForkApp(fi,t1,t2) -> TmForkApp(fi,walk c t1,walk c t2)
+  | TmFork(fi,t1) -> TmFork(fi,walk c t1)
   | TmWait(fi,t1) -> TmWait(fi,walk c t1)
   | TmThread(fi,_,_) as t -> t
   | TmTrue(fi) as t -> t
@@ -249,7 +249,7 @@ let tmInfo t = match t with
   | TmVar(fi,_,_) -> fi
   | TmAbs(fi,_,_,_) -> fi
   | TmApp(fi,_,_) -> fi
-  | TmForkApp(fi,_,_) -> fi
+  | TmFork(fi,_) -> fi
   | TmWait(fi,_) -> fi
   | TmThread(fi,_,_) -> fi
   | TmTrue(fi) -> fi
@@ -421,12 +421,10 @@ and printtm_AppTerm outer ctx t = match t with
       print_space();
       printtm_ATerm false ctx t2;
       cbox()
-  | TmForkApp(fi, t1, t2) ->
+  | TmFork(fi, t1) ->
       obox0();
       pr "fork ";
       printtm_AppTerm false ctx t1;
-      print_space();
-      printtm_ATerm false ctx t2;
       cbox()
   | TmRef(fi, t1) ->
        obox();

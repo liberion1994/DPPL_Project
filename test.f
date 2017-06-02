@@ -197,11 +197,11 @@ counter5.get unit;
 
 buf = ref 0;
 
-func = 
+let func = 
   lambda _:Unit. 
     let tmp = succ (!buf) in
       let _ = (buf := tmp) in
-        tmp;
-      
-t = fork func unit;
+        tmp in
+let t = fork func unit in
 wait t;
+      

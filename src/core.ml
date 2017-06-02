@@ -21,6 +21,7 @@ let rec isval ctx t = match t with
   | t when isnumericval ctx t  -> true
   | TmAbs(_,_,_,_) -> true
   | TmRecord(_,fields) -> List.for_all (fun (l,ti) -> isval ctx ti) fields
+  | TmThread(_,_,_) -> true
   | _ -> false
 
 type store = term list  
@@ -47,23 +48,23 @@ let rec eval1 ctx store t = match t with
   | TmApp(fi,t1,t2) ->
       let t1',store' = eval1 ctx store t1 in
       TmApp(fi, t1', t2), store'
-  | TmForkApp(fi,t1,t2) ->
+  | TmFork(fi,t1) ->
       let channel = Event.new_channel () in
       let th = Thread.create (fun _ ->
-        try let t1',store' = eval ctx store (TmApp(fi,t1,t2)) in
+        try let t1',store' = eval ctx store t1 in
           (* should communicate to set store here *)
           let e = Event.send channel t1' in 
           let _ = Event.sync e in ()
         with NoRuleApplies -> 
-          print_string "No rules apply in another thread") () in
+          let _ = print_string "No rules apply in another thread" in
+          let e = Event.send channel t1 in 
+          let _ = Event.sync e in ()) () in
       TmThread(fi,th,channel), store
+  | TmWait(_,TmThread(fi,thread,channel)) ->
+      let e = Event.receive channel in
+      let ret = Event.sync e in ret, store
   | TmWait(fi,t1) ->
-      let t1',store' = eval1 ctx store t1 in (match t1' with
-        TmThread(fi,thread,channel) -> 
-          let e = Event.receive channel in
-          let ret = Event.sync e in ret, store'
-      | _ -> 
-          raise NoRuleApplies)
+      let t1',store' = eval1 ctx store t1 in TmWait(fi,t1'), store'
   | TmIf(_,TmTrue(_),t2,t3) ->
       t2, store
   | TmIf(_,TmFalse(_),t2,t3) ->
@@ -389,15 +390,8 @@ let rec typeof ctx t =
             else error fi "parameter type mismatch" 
         | TyBot -> TyBot
         | _ -> error fi "arrow type expected")
-  | TmForkApp(fi,t1,t2) ->
-      let tyT1 = typeof ctx t1 in
-      let tyT2 = typeof ctx t2 in
-      (match simplifyty ctx tyT1 with
-          TyArr(tyT11,tyT12) ->
-            if subtype ctx tyT2 tyT11 then TyThread(tyT12)
-            else error fi "parameter type mismatch" 
-        | TyBot -> TyBot
-        | _ -> error fi "arrow type expected")
+  | TmFork(fi,t1) ->
+      let tyT1 = typeof ctx t1 in TyThread(tyT1)
   | TmWait(fi,t1) ->
       let tyT1 = typeof ctx t1 in
       (match tyT1 with
