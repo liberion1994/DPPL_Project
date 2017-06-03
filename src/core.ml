@@ -466,7 +466,7 @@ let rec typeof ctx t =
       (match simplifyty ctx (typeof ctx t1) with
           TyRef(tyT1,l1) -> tyT1
         | TyBot -> TyBot
-        | _ -> error fi "argument of ! is not a Ref or Source")
+        | _ -> error fi "argument of ! is not a Ref")
   | TmAssign(fi,t1,t2) ->
       (match simplifyty ctx (typeof ctx t1) with
           TyRef(tyT1,l1) ->
@@ -475,7 +475,7 @@ let rec typeof ctx t =
             else
               error fi "arguments of := are incompatible"
         | TyBot -> let _ = typeof ctx t2 in TyBot
-        | _ -> error fi "argument of ! is not a Ref or Sink")
+        | _ -> error fi "argument of ! is not a Ref")
   | TmFloat _ -> TyFloat
   | TmTimesfloat(fi,t1,t2) ->
       if subtype ctx (typeof ctx t1) TyFloat
@@ -607,7 +607,7 @@ let rec typecheck ctx locks t =
             if existLock l1 locks then tyT1 
             else error fi ("Access to memory without holding the lock: " ^ l1)
         | TyBot -> TyBot
-        | _ -> error fi "argument of ! is not a Ref or Source")
+        | _ -> error fi "argument of ! is not a Ref")
   | TmAssign(fi,t1,t2) ->
       (*todo add lock constraints*)
       (match simplifyty ctx (typecheck ctx locks t1) with
@@ -618,7 +618,7 @@ let rec typecheck ctx locks t =
             else
               error fi "arguments of := are incompatible"
         | TyBot -> let _ = typecheck ctx locks t2 in TyBot
-        | _ -> error fi "argument of ! is not a Ref or Sink")
+        | _ -> error fi "argument of ! is not a Ref")
   | TmFloat _ -> TyFloat
   | TmTimesfloat(fi,t1,t2) ->
       if subtype ctx (typecheck ctx locks t1) TyFloat
