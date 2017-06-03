@@ -103,6 +103,12 @@ open Syntax
 /*newly introduced*/
 %token <Support.Error.info> FORK
 %token <Support.Error.info> WAIT
+%token <Support.Error.info> TID
+%token <Support.Error.info> SYNC
+%token <Support.Error.info> LOCKED
+%token <Support.Error.info> BY
+%token <Support.Error.info> THREAD
+%token <Support.Error.info> LOCK
 
 /* ---------------------------------------------------------------------- */
 /* The starting production of the generated parser is the syntactic class
@@ -146,6 +152,8 @@ Command :
       { fun ctx -> ((Bind($1.i, $1.v, $2 ctx)), addname ctx $1.v) }
   | LCID Binder
       { fun ctx -> ((Bind($1.i,$1.v,$2 ctx)), addname ctx $1.v) }
+  | LCID EQ LOCK UCID
+      { fun ctx -> ((LockBind($1.i,$1.v,$4.v)), addname (addname ctx $4.v) $1.v) }
 
 /* Right-hand sides of top-level bindings */
 Binder :
@@ -164,6 +172,8 @@ Type :
       { fun ctx -> TySource($2 ctx) }
   | SSINK AType
       { fun ctx -> TySink($2 ctx) }
+  | THREAD AType
+      { fun ctx -> TyThread($2 ctx) }
 
 /* Atomic types are those that never need extra parentheses */
 AType :
@@ -237,6 +247,12 @@ Term :
           TmCase($1, $2 ctx, $4 ctx) }
   | AppTerm COLONEQ AppTerm
       { fun ctx -> TmAssign($2, $1 ctx, $3 ctx) }
+  | WAIT Term
+      { fun ctx -> TmWait($1, $2 ctx) }
+  | FORK LCURLY Term RCURLY
+      { fun ctx -> TmFork($1, $3 ctx) }
+  | SYNC Term IN Term
+      { fun ctx -> TmSync($1, $2 ctx, $4 ctx) }
 
 AppTerm :
     PathTerm
@@ -249,8 +265,8 @@ AppTerm :
   | FIX PathTerm
       { fun ctx ->
           TmFix($1, $2 ctx) }
-  | REF PathTerm
-      { fun ctx -> TmRef($1, $2 ctx) }
+  | REF PathTerm LOCKED BY Type
+      { fun ctx -> TmRef($1, $2 ctx, $5 ctx) }
   | BANG PathTerm 
       { fun ctx -> TmDeref($1, $2 ctx) }
   | TIMESFLOAT PathTerm PathTerm
@@ -261,10 +277,7 @@ AppTerm :
       { fun ctx -> TmPred($1, $2 ctx) }
   | ISZERO PathTerm
       { fun ctx -> TmIsZero($1, $2 ctx) }
-  | WAIT Term
-      { fun ctx -> TmWait($1, $2 ctx) }
-  | FORK Term
-      { fun ctx -> TmFork($1, $2 ctx) }
+  
 
 PathTerm :
     PathTerm DOT LCID
@@ -338,6 +351,8 @@ ATerm :
               0 -> TmZero($1.i)
             | n -> TmSucc($1.i, f (n-1))
           in f $1.v }
+  | TID
+      { fun ctx -> TmTid($1) }
 
 Fields :
     /* empty */

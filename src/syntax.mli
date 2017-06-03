@@ -21,14 +21,12 @@ type ty =
   | TySink of ty
   | TyNat
   | TyThread of ty
+  | TyLock
 
 type term =
     TmVar of info * int * int
   | TmAbs of info * string * ty * term
   | TmApp of info * term * term
-  | TmFork of info * term
-  | TmWait of info * term
-  | TmThread of info * Thread.t * term Event.channel
   | TmTrue of info
   | TmFalse of info
   | TmIf of info * term * term * term
@@ -42,7 +40,7 @@ type term =
   | TmString of info * string
   | TmUnit of info
   | TmLoc of info * int
-  | TmRef of info * term
+  | TmRef of info * term * ty
   | TmDeref of info * term 
   | TmAssign of info * term * term
   | TmFloat of info * float
@@ -52,6 +50,13 @@ type term =
   | TmPred of info * term
   | TmIsZero of info * term
   | TmInert of info * ty
+  | TmFork of info * term
+  | TmWait of info * term
+  | TmThread of info * Thread.t * term Event.channel
+  | TmTid of info
+  | TmSync of info * term * term
+  | TmLock of info * ty
+
 
 type binding =
     NameBind 
@@ -63,6 +68,7 @@ type binding =
 type command =
   | Eval of info * term
   | Bind of info * string * binding
+  | LockBind of info * string * string
 
 (* Contexts *)
 type context

@@ -46,6 +46,12 @@ let reservedWords = [
   (*newly introduced*)
   ("fork", fun i -> Parser.FORK i);
   ("wait", fun i -> Parser.WAIT i);
+  ("tid", fun i -> Parser.TID i);
+  ("synchronized", fun i -> Parser.SYNC i);
+  ("locked", fun i -> Parser.LOCKED i);
+  ("by", fun i -> Parser.BY i);
+  ("Thread", fun i -> Parser.THREAD i);
+  ("Lock", fun i -> Parser.LOCK i);
   
   (* Symbols *)
   ("_", fun i -> Parser.USCORE i);
