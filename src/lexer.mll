@@ -39,8 +39,6 @@ let reservedWords = [
   ("pred", fun i -> Parser.PRED i);
   ("iszero", fun i -> Parser.ISZERO i);
   ("Float", fun i -> Parser.UFLOAT i);
-  ("Source", fun i -> Parser.SSOURCE i);
-  ("Sink", fun i -> Parser.SSINK i);
   ("Nat", fun i -> Parser.NAT i);
 
   (*newly introduced*)
@@ -48,9 +46,8 @@ let reservedWords = [
   ("wait", fun i -> Parser.WAIT i);
   ("tid", fun i -> Parser.TID i);
   ("synchronized", fun i -> Parser.SYNC i);
-  ("locked", fun i -> Parser.LOCKED i);
-  ("by", fun i -> Parser.BY i);
   ("Thread", fun i -> Parser.THREAD i);
+  ("new", fun i -> Parser.NEW i);
   ("Lock", fun i -> Parser.LOCK i);
   
   (* Symbols *)

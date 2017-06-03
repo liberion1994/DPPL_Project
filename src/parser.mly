@@ -50,8 +50,6 @@ open Syntax
 %token <Support.Error.info> PRED
 %token <Support.Error.info> ISZERO
 %token <Support.Error.info> UFLOAT
-%token <Support.Error.info> SSOURCE
-%token <Support.Error.info> SSINK
 %token <Support.Error.info> NAT
 
 /* Identifier and constant value tokens */
@@ -105,9 +103,8 @@ open Syntax
 %token <Support.Error.info> WAIT
 %token <Support.Error.info> TID
 %token <Support.Error.info> SYNC
-%token <Support.Error.info> LOCKED
-%token <Support.Error.info> BY
 %token <Support.Error.info> THREAD
+%token <Support.Error.info> NEW
 %token <Support.Error.info> LOCK
 
 /* ---------------------------------------------------------------------- */
@@ -152,8 +149,6 @@ Command :
       { fun ctx -> ((Bind($1.i, $1.v, $2 ctx)), addname ctx $1.v) }
   | LCID Binder
       { fun ctx -> ((Bind($1.i,$1.v,$2 ctx)), addname ctx $1.v) }
-  | LCID EQ LOCK UCID
-      { fun ctx -> ((LockBind($1.i,$1.v,$4.v)), addname (addname ctx $4.v) $1.v) }
 
 /* Right-hand sides of top-level bindings */
 Binder :
@@ -166,12 +161,8 @@ Binder :
 Type :
     ArrowType
                 { $1 }
-  | RREF AType
-      { fun ctx -> TyRef($2 ctx) }
-  | SSOURCE AType
-      { fun ctx -> TySource($2 ctx) }
-  | SSINK AType
-      { fun ctx -> TySink($2 ctx) }
+  | RREF LT UCID GT AType
+      { fun ctx -> TyRef($5 ctx,$3.v) }
   | THREAD AType
       { fun ctx -> TyThread($2 ctx) }
 
@@ -253,6 +244,8 @@ Term :
       { fun ctx -> TmFork($1, $3 ctx) }
   | SYNC Term IN Term
       { fun ctx -> TmSync($1, $2 ctx, $4 ctx) }
+  | NEW LOCK LT UCID GT
+      { fun ctx -> TmLock($1, $4.v) }
 
 AppTerm :
     PathTerm
@@ -265,8 +258,8 @@ AppTerm :
   | FIX PathTerm
       { fun ctx ->
           TmFix($1, $2 ctx) }
-  | REF PathTerm LOCKED BY Type
-      { fun ctx -> TmRef($1, $2 ctx, $5 ctx) }
+  | REF LT UCID GT PathTerm
+      { fun ctx -> TmRef($1, $5 ctx, $3.v) }
   | BANG PathTerm 
       { fun ctx -> TmDeref($1, $2 ctx) }
   | TIMESFLOAT PathTerm PathTerm

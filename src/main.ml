@@ -53,9 +53,9 @@ let alreadyImported = ref ([] : string list)
 let checkbinding fi ctx b = match b with
     NameBind -> NameBind
   | VarBind(tyT) -> VarBind(tyT)
-  | TmAbbBind(t,None) -> TmAbbBind(t, Some(typeof ctx t))
+  | TmAbbBind(t,None) -> TmAbbBind(t, Some(typecheck ctx emptyLocks t))
   | TmAbbBind(t,Some(tyT)) ->
-     let tyT' = typeof ctx t in
+     let tyT' = typecheck ctx emptyLocks t in
      if subtype ctx tyT' tyT then TmAbbBind(t,Some(tyT))
      else error fi "Type of binding does not match declared type"
   | TyVarBind -> TyVarBind
@@ -67,51 +67,42 @@ let prbindingty ctx b = match b with
   | VarBind(tyT) -> pr ": "; printty ctx tyT 
   | TmAbbBind(t, tyT_opt) -> pr ": ";
      (match tyT_opt with
-         None -> printty ctx (typeof ctx t)
+         None -> printty ctx (typecheck ctx emptyLocks t)
        | Some(tyT) -> printty ctx tyT)
   | TyAbbBind(tyT) -> pr ":: *"
 
-let rec process_command ctx cmd = match cmd with
+let rec process_command (ctx,locks) cmd = match cmd with
   | Eval(fi,t) -> 
-        let tyT = typeof ctx t in
+        let tyT = typecheck ctx emptyLocks t in
         let t' = eval ctx t in
         printtm_ATerm true ctx t'; 
         print_break 1 2;
         pr ": ";
         printty ctx tyT;
         force_newline();
-        ctx
+        (ctx,locks)
   | Bind(fi,x,bind) -> 
       let bind = checkbinding fi ctx bind in
       let bind' = evalbinding ctx bind in
       pr x; pr " "; prbindingty ctx bind'; force_newline();
       let ctx' = addbinding ctx x bind' in
-      let _ = shiftstore 1 in ctx'
-  | LockBind(fi,tm,ty) ->
-      let bind1 = TyAbbBind(TyLock) in
-      pr tm; pr ": Lock "; pr ty; force_newline();
-      let ctx' = addbinding ctx ty bind1 in
-      let _ = shiftstore 1 in
-      let ty' = TyVar(name2index fi ctx' ty, ctxlength ctx') in
-      let bind2 = TmAbbBind(TmLock(fi, ty'), Some(ty')) in
-      let ctx'' = addbinding ctx' tm bind2 in
-      let _ = shiftstore 1 in ctx''
+      let _ = shiftstore 1 in (ctx',locks)
 
 
-let process_file f ctx =
+let process_file f (ctx,locks) =
   alreadyImported := f :: !alreadyImported;
   let cmds,_ = parseFile f ctx in
-  let g ctx c =  
+  let g (ctx,locks) c =  
     open_hvbox 0;
-    let results = process_command ctx c in
+    let results = process_command (ctx,locks) c in
     print_flush();
     results
   in
-    List.fold_left g ctx cmds
+    List.fold_left g (ctx,locks) cmds
 
 let main () = 
   let inFile = parseArgs() in
-  let _ = process_file inFile emptycontext in
+  let _ = process_file inFile (emptycontext, emptyLocks) in
   ()
 
 let () = set_max_boxes 1000

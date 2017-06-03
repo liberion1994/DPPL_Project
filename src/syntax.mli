@@ -12,16 +12,14 @@ type ty =
   | TyArr of ty * ty
   | TyRecord of (string * ty) list
   | TyVariant of (string * ty) list
-  | TyRef of ty
+  | TyRef of ty * string
   | TyBool
   | TyString
   | TyUnit
   | TyFloat
-  | TySource of ty
-  | TySink of ty
   | TyNat
   | TyThread of ty
-  | TyLock
+  | TyLock of string
 
 type term =
     TmVar of info * int * int
@@ -40,7 +38,7 @@ type term =
   | TmString of info * string
   | TmUnit of info
   | TmLoc of info * int
-  | TmRef of info * term * ty
+  | TmRef of info * term * string
   | TmDeref of info * term 
   | TmAssign of info * term * term
   | TmFloat of info * float
@@ -55,7 +53,7 @@ type term =
   | TmThread of info * Thread.t * term Event.channel
   | TmTid of info
   | TmSync of info * term * term
-  | TmLock of info * ty
+  | TmLock of info * string
 
 
 type binding =
@@ -68,7 +66,6 @@ type binding =
 type command =
   | Eval of info * term
   | Bind of info * string * binding
-  | LockBind of info * string * string
 
 (* Contexts *)
 type context

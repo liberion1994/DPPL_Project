@@ -13,16 +13,14 @@ type ty =
   | TyArr of ty * ty
   | TyRecord of (string * ty) list
   | TyVariant of (string * ty) list
-  | TyRef of ty
+  | TyRef of ty * string
   | TyBool
   | TyString
   | TyUnit
   | TyFloat
-  | TySource of ty
-  | TySink of ty
   | TyNat
   | TyThread of ty
-  | TyLock
+  | TyLock of string
 
 type term =
     TmVar of info * int * int
@@ -41,7 +39,7 @@ type term =
   | TmString of info * string
   | TmUnit of info
   | TmLoc of info * int
-  | TmRef of info * term * ty
+  | TmRef of info * term * string
   | TmDeref of info * term 
   | TmAssign of info * term * term
   | TmFloat of info * float
@@ -56,7 +54,7 @@ type term =
   | TmThread of info * Thread.t * term Event.channel
   | TmTid of info
   | TmSync of info * term * term
-  | TmLock of info * ty
+  | TmLock of info * string
 
 type binding =
     NameBind 
@@ -70,7 +68,6 @@ type context = (string * binding) list
 type command =
   | Eval of info * term
   | Bind of info * string * binding
-  | LockBind of info * string * string
 
 (* ---------------------------------------------------------------------- *)
 (* Context management *)
@@ -126,12 +123,10 @@ let tymap onvar c tyT =
   | TyString -> TyString
   | TyFloat -> TyFloat
   | TyUnit -> TyUnit
-  | TyRef(tyT1) -> TyRef(walk c tyT1)
-  | TySource(tyT1) -> TySource(walk c tyT1)
-  | TySink(tyT1) -> TySink(walk c tyT1)
+  | TyRef(tyT1,l) -> TyRef(walk c tyT1,l)
   | TyNat -> TyNat
   | TyThread(tyT1) -> TyThread(walk c tyT1)
-  | TyLock -> TyLock
+  | TyLock(_) as tyT -> tyT
   in walk c tyT
 
 let tmmap onvar ontype c t = 
@@ -158,7 +153,7 @@ let tmmap onvar ontype c t =
   | TmString _ as t -> t
   | TmUnit(fi) as t -> t
   | TmLoc(fi,l) as t -> t
-  | TmRef(fi,t1,t2) -> TmRef(fi,walk c t1,ontype c t2)
+  | TmRef(fi,t1,t2) -> TmRef(fi,walk c t1,t2)
   | TmDeref(fi,t1) -> TmDeref(fi,walk c t1)
   | TmAssign(fi,t1,t2) -> TmAssign(fi,walk c t1,walk c t2)
   | TmFloat _ as t -> t
@@ -172,7 +167,7 @@ let tmmap onvar ontype c t =
   | TmThread(fi,_,_) as t -> t
   | TmTid(fi) as t -> t
   | TmSync(fi,t1,t2) -> TmSync(fi, walk c t1, walk c t2)
-  | TmLock(fi,t1) -> TmLock(fi, ontype c t1)
+  | TmLock(fi,t1) as t -> t
   in walk c t
 
 let typeShiftAbove d c tyT =
@@ -314,9 +309,7 @@ let small t =
   | _ -> false
 
 let rec printty_Type outer ctx tyT = match tyT with
-    TyRef(tyT) -> pr "Ref "; printty_AType false ctx tyT
-  | TySource(tyT) -> pr "Source "; printty_AType false ctx tyT
-  | TySink(tyT) -> pr "Sink "; printty_AType false ctx tyT
+    TyRef(tyT,l) -> pr ("Ref<" ^ l ^ ">"); printty_AType false ctx tyT
   | TyThread(tyT) -> pr "Thread "; printty_AType false ctx tyT
   | tyT -> printty_ArrowType outer ctx tyT
 
@@ -370,7 +363,7 @@ and printty_AType outer ctx tyT = match tyT with
   | TyUnit -> pr "Unit"
   | TyFloat -> pr "Float"
   | TyNat -> pr "Nat"
-  | TyLock -> pr "Lock"
+  | TyLock(a) -> pr ("Lock<" ^ a ^ ">")
   | tyT -> pr "("; printty_Type outer ctx tyT; pr ")"
 
 let printty ctx tyT = printty_Type true ctx tyT 
@@ -441,10 +434,8 @@ and printtm_AppTerm outer ctx t = match t with
       cbox()
   | TmRef(fi, t1, t2) ->
        obox();
-       pr "ref ";
+       pr ("ref<" ^ t2 ^ ">");
        printtm_ATerm false ctx t1;
-       pr "locked by";
-       printty ctx t2;
        cbox()
   | TmDeref(fi, t1) ->
        obox();
@@ -520,8 +511,8 @@ and printtm_ATerm outer ctx t = match t with
       obox0();
       print_string ("thread<" ^ (string_of_int (Thread.id thread)) ^ ">");
       cbox()
-  | TmLock(_,ty) ->
-      pr "lock of "; printty ctx ty;
+  | TmLock(_,t) ->
+      pr ("lock<" ^ t ^ ">");
   | t -> pr "("; printtm_Term outer ctx t; pr ")"
 
 let printtm ctx t = printtm_Term true ctx t 

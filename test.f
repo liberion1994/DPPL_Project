@@ -1,16 +1,20 @@
-x = Lock X;
+x = new Lock<X>;
+y = new Lock<Y>;
+z = new Lock<X>;
 
-/* which will behave like
-  X = Lock;
-  x : X;
-  x = new_lock;
-*/
+/* 这里可以做Lock类型的偏序关系，Lock<X>是Lock<_>的子类，Lock<X,Y>是Lock<X>的子类 */
 
-
-buf1 = ref 0 locked by X;
+buf1 = ref<X> 0;
+buf2 = ref<X> 100;
 
 
-synchronized x in !buf1;
+let flag = true in
+  synchronized if flag then x else z in buf1 := 1;
+
+let flag = true in
+  synchronized if flag then x else y in buf1 := 1;
+/* 报错，因为Lock<X>和Lock<Y>的join为Lock<_> */
+
 
 /*
 
@@ -20,16 +24,16 @@ checkParity = fix (lambda f:Nat->Bool->Bool. lambda n:Nat. lambda even:Bool.
 
 isEven = lambda n:Nat. checkParity n true;
 
-targetFunc = lambda _:Unit. 
-  if isEven tid then 
+targetFunc = lambda _:Unit.
+  if isEven tid then
     let tmp1 = succ (!buf1) in
     let _ = (buf1 := tmp1) in
     let tmp2 = pred (!buf2) in
-    let _ = (buf2 := tmp2) in 
+    let _ = (buf2 := tmp2) in
     {res1=tmp1,res2=tmp2}
   else
     let tmp1 = pred (!buf2) in
-    let _ = (buf2 := tmp1) in 
+    let _ = (buf2 := tmp1) in
     let tmp2 = succ (!buf1) in
     let _ = (buf1 := tmp2) in
     {res1=tmp2,res2=tmp1};
