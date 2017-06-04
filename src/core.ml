@@ -299,7 +299,7 @@ let rec subtype ctx tyS tyT =
    | (TyBot,_) -> 
        true
    | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
-       (subtype ctx tyT1 tyS1) && (subtype ctx tyS2 tyT2) && sublockset l2 l1
+       (subtype ctx tyT1 tyS1) && (subtype ctx tyS2 tyT2) && locksetequal l2 l1
    | (TyRecord(fS), TyRecord(fT)) ->
        List.for_all
          (fun (li,tyTi) -> 
@@ -340,7 +340,7 @@ let rec join ctx tyS tyT =
                  commonLabels in
       TyRecord(commonFields)
   | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
-      TyArr(meet ctx  tyS1 tyT1, join ctx tyS2 tyT2,unionlockset l1 l2)
+      TyArr(meet ctx tyS1 tyT1, join ctx tyS2 tyT2,unionlockset l1 l2)
   | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
       if subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 
         then TyRef(tyT1,unionlockset l1 l2)
@@ -393,14 +393,24 @@ let rec typecheck (ctx,permissions,locks) t =
   match t with
     TmInert(fi,tyT) ->
       tyT
-  | TmVar(fi,i,_) -> getTypeFromContext fi ctx i
+  | TmVar(fi,i,_) -> 
+      let tyT = getTypeFromContext fi ctx i in (match tyT with
+          TyArr(tyT1,tyT2,ls) -> 
+            let alreadyheld = StringSet.fold (fun p r -> 
+              if existlock p ls then r
+              else (r ^ " " ^ p)) permissions "" in
+            if alreadyheld = "" then 
+              tyT
+            else 
+              error fi ("bind abstraction without explcit declaring forbidden lock (which may cause dead lock):" ^ alreadyheld)
+        | _ -> 
+            tyT)
   | TmAbs(fi,x,tyT1,t2,ls) ->
       let ctx' = addbinding ctx x (VarBind(tyT1)) in
       let permissions' = foldlockset addPermission ls permissions in
       let tyT2 = typecheck (ctx',permissions',locks) t2 in
       TyArr(tyT1, typeShift (-1) tyT2,ls)
   | TmApp(fi,t1,t2) ->
-  (*todo typing application的时候需要知道t1需要的外部锁，然后check有没有在手里*)
       let tyT1 = typecheck (ctx,permissions,locks) t1 in
       let tyT2 = typecheck (ctx,permissions,locks) t2 in
       (match simplifyty ctx tyT1 with
@@ -505,7 +515,6 @@ let rec typecheck (ctx,permissions,locks) t =
         | TyBot -> TyBot
         | _ -> error fi "argument of ! is not a Ref")
   | TmAssign(fi,t1,t2) ->
-      (*todo add permission constraints*)
       (match simplifyty ctx (typecheck (ctx,permissions,locks) t1) with
           TyRef(tyT1,l1) ->
             if subtype ctx (typecheck (ctx,permissions,locks) t2) tyT1 then

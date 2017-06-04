@@ -210,8 +210,8 @@ TyBinder :
 ArrowType :
     AType ARROW ArrowType
      { fun ctx -> TyArr($1 ctx, $3 ctx, emptylockset) }
-  | AType ARROW LT LockFields GT ArrowType
-     { fun ctx -> TyArr($1 ctx, $6 ctx, $4) }
+  | AType LT LockFields GT ARROW ArrowType
+     { fun ctx -> TyArr($1 ctx, $6 ctx, $3) }
   | AType
             { $1 }
 

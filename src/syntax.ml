@@ -21,6 +21,7 @@ let unionlockset = StringSet.union
 let foldlockset f ls i = StringSet.fold f ls i
 let sublockset = StringSet.subset
 let locksetequal = StringSet.equal
+let existlock = StringSet.mem
 (* ---------------------------------------------------------------------- *)
 (* Datatypes *)
 
@@ -337,11 +338,11 @@ and printty_ArrowType outer ctx  tyT = match tyT with
     TyArr(tyT1,tyT2,ls) ->
       obox0(); 
       printty_AType false ctx tyT1;
-      if outer then pr " ";
-      pr "->";
+      pr " ";
       if StringSet.cardinal ls > 0 then 
-          printlockset ls; 
-      if outer then print_space() else break();
+        let _ = printlockset ls in print_space ();
+      else break(); 
+      pr "-> ";
       printty_ArrowType outer ctx tyT2;
       cbox()
   | tyT -> printty_AType outer ctx tyT

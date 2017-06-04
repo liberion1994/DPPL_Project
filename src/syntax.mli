@@ -14,6 +14,7 @@ val unionlockset : lockset -> lockset -> lockset
 val foldlockset : (string -> 'a -> 'a) -> lockset -> 'a -> 'a
 val sublockset : lockset -> lockset -> bool
 val locksetequal : lockset -> lockset -> bool
+val existlock : string -> lockset -> bool
 (* Data type definitions *)
 type ty =
     TyVar of int * int
