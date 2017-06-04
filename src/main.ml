@@ -50,43 +50,50 @@ in
 
 let alreadyImported = ref ([] : string list)
 
-let checkbinding fi ctx b = match b with
-    NameBind -> NameBind
-  | VarBind(tyT) -> VarBind(tyT)
-  | TmAbbBind(t,None) -> TmAbbBind(t, Some(typecheck ctx emptyLocks t))
+let checkbinding fi (ctx,locks) b = match b with
+    NameBind -> (NameBind,locks)
+  | VarBind(tyT) -> (VarBind(tyT),locks)
+  | TmAbbBind(t,None) -> 
+      let tyT = typecheck (ctx,emptyPermissions,locks) t in (match tyT with 
+          TyLock("_") -> (TmAbbBind(t, Some(tyT)),locks)
+        | TyLock(v) -> (TmAbbBind(t, Some(tyT)),addLock v locks)
+        | _ -> (TmAbbBind(t, Some(tyT)),locks))
   | TmAbbBind(t,Some(tyT)) ->
-     let tyT' = typecheck ctx emptyLocks t in
-     if subtype ctx tyT' tyT then TmAbbBind(t,Some(tyT))
-     else error fi "Type of binding does not match declared type"
-  | TyVarBind -> TyVarBind
-  | TyAbbBind(tyT) -> TyAbbBind(tyT)
+      let tyT' = typecheck (ctx,emptyPermissions,locks) t in
+      if subtype ctx tyT' tyT then (match tyT with 
+          TyLock("_") -> (TmAbbBind(t, Some(tyT)),locks)
+        | TyLock(v) -> (TmAbbBind(t, Some(tyT)),addLock v locks)
+        | _ -> (TmAbbBind(t, Some(tyT)),locks))
+      else error fi "Type of binding does not match declared type"
+  | TyVarBind -> (TyVarBind,locks)
+  | TyAbbBind(tyT) -> (TyAbbBind(tyT),locks)
 
-let prbindingty ctx b = match b with
+let prbindingty (ctx,locks) b = match b with
     NameBind -> ()
   | TyVarBind -> ()
   | VarBind(tyT) -> pr ": "; printty ctx tyT 
   | TmAbbBind(t, tyT_opt) -> pr ": ";
-     (match tyT_opt with
-         None -> printty ctx (typecheck ctx emptyLocks t)
-       | Some(tyT) -> printty ctx tyT)
+      (match tyT_opt with
+          None -> printty ctx (typecheck (ctx,emptyPermissions,locks) t)
+        | Some(tyT) -> printty ctx tyT)
   | TyAbbBind(tyT) -> pr ":: *"
 
 let rec process_command (ctx,locks) cmd = match cmd with
   | Eval(fi,t) -> 
-        let tyT = typecheck ctx emptyLocks t in
-        let t' = eval ctx t in
-        printtm_ATerm true ctx t'; 
-        print_break 1 2;
-        pr ": ";
-        printty ctx tyT;
-        force_newline();
-        (ctx,locks)
+      let tyT = typecheck (ctx,emptyPermissions,locks) t in
+      let t' = eval ctx t in
+      printtm_ATerm true ctx t'; 
+      print_break 1 2;
+      pr ": ";
+      printty ctx tyT;
+      force_newline();
+      (ctx,locks)
   | Bind(fi,x,bind) -> 
-      let bind = checkbinding fi ctx bind in
+      let bind,locks' = checkbinding fi (ctx,locks) bind in
       let bind' = evalbinding ctx bind in
-      pr x; pr " "; prbindingty ctx bind'; force_newline();
+      pr x; pr " "; prbindingty (ctx,locks') bind'; force_newline();
       let ctx' = addbinding ctx x bind' in
-      let _ = shiftstore 1 in (ctx',locks)
+      let _ = shiftstore 1 in (ctx',locks')
 
 
 let process_file f (ctx,locks) =
@@ -114,51 +121,3 @@ let res =
   ()
 let () = print_flush()
 let () = exit res
-
-
-(*
-open Thread
-open Array
-
-let buf = ref 0
-
-let func () = let threads = Array.make 10 () in 
-    Array.map (fun _ -> Thread.create (fun _ -> 
-        let tmp = !buf in
-            Thread.delay 0.000001;
-            buf := tmp + 1
-    ) ()) threads
-
-    
-let () = let _ = Array.map (fun a -> 
-    join a; 
-    print_int (Thread.id a); 
-    print_string "\t"; 
-    print_int !buf; 
-    print_newline ()
-) (func ()) in 
-print_string "final result\t";
-print_int !buf; 
-*)
-(*
-let c = Event.new_channel ();;
-let f () =
-   let ids = string_of_int (Thread.id (Thread.self ())) 
-   in print_string ("-------- before  -------" ^ ids) ; print_newline() ;
-      let e = Event.receive c 
-      in print_string ("-------- during  -------" ^ ids) ; print_newline() ;
-         let v = Event.sync e 
-         in print_string (v ^ " " ^ ids ^ " ") ; 
-            print_string ("-------- after  -------" ^ ids) ; print_newline() ;;
-
-let g () =
-   let ids = string_of_int (Thread.id (Thread.self ())) 
-   in print_string ("Start of " ^ ids ^ "\n");
-      let e2 = Event.send c "hello" 
-      in Event.sync e2 ;
-         print_string ("End of " ^ ids) ;
-         print_newline () ;;
-
-let t1,t2,t3 = Thread.create f (), Thread.create f (), Thread.create g ();;
-Thread.delay 1.0;;
-*)

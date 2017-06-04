@@ -1,19 +1,24 @@
-x = new Lock<X>;
-y = new Lock<Y>;
-z = new Lock<X>;
 
 /* 这里可以做Lock类型的偏序关系，Lock<X>是Lock<_>的子类，Lock<X,Y>是Lock<X>的子类 */
 
-buf1 = ref<X> 0;
-buf2 = ref<X> 100;
-
-
-let flag = true in
-  synchronized if flag then x else z in buf1 := 1;
-
+let x = new Lock<X> in
+let y = new Lock<X> in
+let buf1 = ref<X> 0 in
 let flag = true in
   synchronized if flag then x else y in buf1 := 1;
-/* 报错，因为Lock<X>和Lock<Y>的join为Lock<_> */
+
+let x = new Lock<X> in
+let y = new Lock<Y> in
+let buf1 = ref<X> 0 in
+let flag = true in
+  synchronized if flag then x else y in 0;
+
+let x = new Lock<X> in
+let y = new Lock<Y> in
+let buf1 = ref<X> 0 in
+let flag = true in
+  synchronized if flag then x else y in buf1 := 1;
+/* 报错，因为Lock<X>和Lock<Y>的join为Lock<_>，因此访问buf1的时候有可能没有拿到锁X */
 
 
 /*

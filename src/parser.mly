@@ -156,6 +156,8 @@ Binder :
       { fun ctx -> VarBind ($2 ctx)}
   | EQ Term 
       { fun ctx -> TmAbbBind($2 ctx, None) }
+  | EQ Term COLON Type
+      { fun ctx -> TmAbbBind($2 ctx, Some($4 ctx)) }
 
 /* All type expressions */
 Type :
