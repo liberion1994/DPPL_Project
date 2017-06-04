@@ -54,11 +54,11 @@ let checkbinding fi (ctx,locks) b = match b with
     NameBind -> (NameBind,locks)
   | VarBind(tyT) -> (VarBind(tyT),locks)
   | TmAbbBind(t,None) -> 
-      let tyT = typecheck (ctx,emptyPermissions,locks) t in (match tyT with 
+      let tyT = typecheck (ctx,emptyPermissions,locks,".") t in (match tyT with 
           TyLock(ls) -> (TmAbbBind(t, Some(tyT)), foldlockset addLock ls locks)
         | _ -> (TmAbbBind(t, Some(tyT)),locks))
   | TmAbbBind(t,Some(tyT)) ->
-      let tyT' = typecheck (ctx,emptyPermissions,locks) t in
+      let tyT' = typecheck (ctx,emptyPermissions,locks,".") t in
       if subtype ctx tyT' tyT then (match tyT with 
           TyLock(ls) -> (TmAbbBind(t, Some(tyT)), foldlockset addLock ls locks)
         | _ -> (TmAbbBind(t, Some(tyT)),locks))
@@ -72,13 +72,13 @@ let prbindingty (ctx,locks) b = match b with
   | VarBind(tyT) -> pr ": "; printty ctx tyT 
   | TmAbbBind(t, tyT_opt) -> pr ": ";
       (match tyT_opt with
-          None -> printty ctx (typecheck (ctx,emptyPermissions,locks) t)
+          None -> printty ctx (typecheck (ctx,emptyPermissions,locks,".") t)
         | Some(tyT) -> printty ctx tyT)
   | TyAbbBind(tyT) -> pr ":: *"
 
 let rec process_command (ctx,locks) cmd = match cmd with
   | Eval(fi,t) -> 
-      let tyT = typecheck (ctx,emptyPermissions,locks) t in
+      let tyT = typecheck (ctx,emptyPermissions,locks,".") t in
       let t' = eval (ctx,locks) t in
       printtm_ATerm true ctx t'; 
       print_break 1 2;

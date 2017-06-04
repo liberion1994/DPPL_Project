@@ -46,11 +46,14 @@ let shiftstore i =
     store := List.map (fun t -> termShift i t) !store 
 
 
+exception AcquireLockOutOfOrder of string * string
 
 module StringSet = Set.Make(String)
 type permissions = StringSet.t
 let emptyPermissions = StringSet.empty
-let addPermission = StringSet.add
+let addPermission p (ps,min) = 
+  if p > min then (StringSet.add p ps,p) 
+  else raise (AcquireLockOutOfOrder (p,min))
 let isPermissionsEmpty = StringSet.is_empty
 let existPermission = StringSet.mem
 
@@ -340,7 +343,8 @@ let rec join ctx tyS tyT =
                  commonLabels in
       TyRecord(commonFields)
   | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
-      TyArr(meet ctx tyS1 tyT1, join ctx tyS2 tyT2,unionlockset l1 l2)
+      if locksetequal l2 l1 then TyArr(meet ctx tyS1 tyT1, join ctx tyS2 tyT2,l1)
+      else TyTop
   | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
       if subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 
         then TyRef(tyT1,unionlockset l1 l2)
@@ -377,7 +381,8 @@ and meet ctx tyS tyT =
                  allLabels in
       TyRecord(allFields)
   | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
-      TyArr(join ctx tyS1 tyT1, meet ctx tyS2 tyT2,interlockset l1 l2)
+      if locksetequal l2 l1 then TyArr(join ctx tyS1 tyT1, meet ctx tyS2 tyT2,l1)
+      else TyBot
   | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
       if subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 
         then TyRef(tyT1,interlockset l1 l2)
@@ -389,7 +394,7 @@ and meet ctx tyS tyT =
 
 (* ------------------------   TYPING  ------------------------ *)
 
-let rec typecheck (ctx,permissions,locks) t =
+let rec typecheck (ctx,permissions,locks,minlock) t =
   match t with
     TmInert(fi,tyT) ->
       tyT
@@ -407,12 +412,15 @@ let rec typecheck (ctx,permissions,locks) t =
             tyT)
   | TmAbs(fi,x,tyT1,t2,ls) ->
       let ctx' = addbinding ctx x (VarBind(tyT1)) in
-      let permissions' = foldlockset addPermission ls permissions in
-      let tyT2 = typecheck (ctx',permissions',locks) t2 in
+      let permissions',minlock' = 
+        try foldlockset addPermission ls (permissions,minlock) 
+        with AcquireLockOutOfOrder(p,min) -> error fi 
+            ("Acquire lock out of order (which may cause dead lock): " ^ p ^ " over " ^ min) in
+      let tyT2 = typecheck (ctx',permissions',locks,minlock') t2 in
       TyArr(tyT1, typeShift (-1) tyT2,ls)
   | TmApp(fi,t1,t2) ->
-      let tyT1 = typecheck (ctx,permissions,locks) t1 in
-      let tyT2 = typecheck (ctx,permissions,locks) t2 in
+      let tyT1 = typecheck (ctx,permissions,locks,minlock) t1 in
+      let tyT2 = typecheck (ctx,permissions,locks,minlock) t2 in
       (match simplifyty ctx tyT1 with
           TyArr(tyT11,tyT12,ls) ->
             if subtype ctx tyT2 tyT11 then 
@@ -429,29 +437,31 @@ let rec typecheck (ctx,permissions,locks) t =
   | TmFalse(fi) -> 
       TyBool
   | TmIf(fi,t1,t2,t3) ->
-      if subtype ctx (typecheck (ctx,permissions,locks) t1) TyBool then
-        join ctx (typecheck (ctx,permissions,locks) t2) (typecheck (ctx,permissions,locks) t3)
+      if subtype ctx (typecheck (ctx,permissions,locks,minlock) t1) TyBool then
+        join ctx 
+          (typecheck (ctx,permissions,locks,minlock) t2) 
+          (typecheck (ctx,permissions,locks,minlock) t3)
       else error fi "guard of conditional not a boolean"
   | TmLet(fi,x,t1,t2) ->
-     let tyT1 = typecheck (ctx,permissions,locks) t1 in
+     let tyT1 = typecheck (ctx,permissions,locks,minlock) t1 in
      let ctx' = addbinding ctx x (VarBind(tyT1)) in
      let locks' = (match tyT1 with 
           TyLock(ls) -> foldlockset addLock ls locks
         | _ -> locks) in
-     typeShift (-1) (typecheck (ctx',permissions,locks') t2)
+     typeShift (-1) (typecheck (ctx',permissions,locks',minlock) t2)
   | TmRecord(fi, fields) ->
       let fieldtys = 
-        List.map (fun (li,ti) -> (li, typecheck (ctx,permissions,locks) ti)) fields in
+        List.map (fun (li,ti) -> (li, typecheck (ctx,permissions,locks,minlock) ti)) fields in
       TyRecord(fieldtys)
   | TmProj(fi, t1, l) ->
-      (match simplifyty ctx (typecheck (ctx,permissions,locks) t1) with
+      (match simplifyty ctx (typecheck (ctx,permissions,locks,minlock) t1) with
           TyRecord(fieldtys) ->
             (try List.assoc l fieldtys
              with Not_found -> error fi ("label "^l^" not found"))
         | TyBot -> TyBot
         | _ -> error fi "Expected record type")
   | TmCase(fi, t, cases) ->
-      (match simplifyty ctx (typecheck (ctx,permissions,locks) t) with
+      (match simplifyty ctx (typecheck (ctx,permissions,locks,minlock) t) with
          TyVariant(fieldtys) ->
            List.iter
              (fun (li,(xi,ti)) ->
@@ -465,13 +475,13 @@ let rec typecheck (ctx,permissions,locks) t =
                            with Not_found ->
                              error fi ("label "^li^" not found") in
                          let ctx' = addbinding ctx xi (VarBind(tyTi)) in
-                         typeShift (-1) (typecheck (ctx',permissions,locks) ti))
+                         typeShift (-1) (typecheck (ctx',permissions,locks,minlock) ti))
                       cases in
            List.fold_left (join ctx) TyBot casetypes
         | TyBot -> TyBot
         | _ -> error fi "Expected variant type")
   | TmFix(fi, t1) ->
-      let tyT1 = typecheck (ctx,permissions,locks) t1 in
+      let tyT1 = typecheck (ctx,permissions,locks,minlock) t1 in
       (match simplifyty ctx tyT1 with
            TyArr(tyT11,tyT12,ls) ->
              if subtype ctx tyT12 tyT11 then tyT12
@@ -483,14 +493,14 @@ let rec typecheck (ctx,permissions,locks) t =
           TyVariant(fieldtys) ->
             (try
                let tyTiExpected = List.assoc li fieldtys in
-               let tyTi = typecheck (ctx,permissions,locks) ti in
+               let tyTi = typecheck (ctx,permissions,locks,minlock) ti in
                if subtype ctx tyTi tyTiExpected
                  then tyT
                  else error fi "field does not have expected type"
              with Not_found -> error fi ("label "^li^" not found"))
         | _ -> error fi "Annotation is not a variant type")
   | TmAscribe(fi,t1,tyT) ->
-     if subtype ctx (typecheck (ctx,permissions,locks) t1) tyT then
+     if subtype ctx (typecheck (ctx,permissions,locks,minlock) t1) tyT then
        tyT
      else
        error fi "body of as-term does not have the expected type"
@@ -500,12 +510,12 @@ let rec typecheck (ctx,permissions,locks) t =
       let unbound = foldlockset (fun l r -> 
         if existLock l locks then r 
         else (r ^ " " ^ l)) l1 "" in
-      if unbound = "" then TyRef(typecheck (ctx,permissions,locks) t1,l1) 
+      if unbound = "" then TyRef(typecheck (ctx,permissions,locks,minlock) t1,l1) 
       else error fi ("ref locked by unbound lock:" ^ unbound)
   | TmLoc(fi,l) ->
       error fi "locations are not supposed to occur in source programs!"
   | TmDeref(fi,t1) ->
-      (match simplifyty ctx (typecheck (ctx,permissions,locks) t1) with
+      (match simplifyty ctx (typecheck (ctx,permissions,locks,minlock) t1) with
           TyRef(tyT1,l1) -> 
             let unheld = foldlockset (fun l r -> 
                 if existPermission l permissions then r
@@ -515,9 +525,9 @@ let rec typecheck (ctx,permissions,locks) t =
         | TyBot -> TyBot
         | _ -> error fi "argument of ! is not a Ref")
   | TmAssign(fi,t1,t2) ->
-      (match simplifyty ctx (typecheck (ctx,permissions,locks) t1) with
+      (match simplifyty ctx (typecheck (ctx,permissions,locks,minlock) t1) with
           TyRef(tyT1,l1) ->
-            if subtype ctx (typecheck (ctx,permissions,locks) t2) tyT1 then
+            if subtype ctx (typecheck (ctx,permissions,locks,minlock) t2) tyT1 then
               let unheld = foldlockset (fun l r -> 
                 if existPermission l permissions then r
                 else (r ^ " " ^ l)) l1 "" in
@@ -525,30 +535,30 @@ let rec typecheck (ctx,permissions,locks) t =
               else error fi ("Access to memory without holding the lock:" ^ unheld)
             else
               error fi "arguments of := are incompatible"
-        | TyBot -> let _ = typecheck (ctx,permissions,locks) t2 in TyBot
+        | TyBot -> let _ = typecheck (ctx,permissions,locks,minlock) t2 in TyBot
         | _ -> error fi "argument of ! is not a Ref")
   | TmFloat _ -> TyFloat
   | TmTimesfloat(fi,t1,t2) ->
-      if subtype ctx (typecheck (ctx,permissions,locks) t1) TyFloat
-      && subtype ctx (typecheck (ctx,permissions,locks) t2) TyFloat then TyFloat
+      if subtype ctx (typecheck (ctx,permissions,locks,minlock) t1) TyFloat
+      && subtype ctx (typecheck (ctx,permissions,locks,minlock) t2) TyFloat then TyFloat
       else error fi "argument of timesfloat is not a number"
   | TmZero(fi) ->
       TyNat
   | TmSucc(fi,t1) ->
-      if subtype ctx (typecheck (ctx,permissions,locks) t1) TyNat then TyNat
+      if subtype ctx (typecheck (ctx,permissions,locks,minlock) t1) TyNat then TyNat
       else error fi "argument of succ is not a number"
   | TmPred(fi,t1) ->
-      if subtype ctx (typecheck (ctx,permissions,locks) t1) TyNat then TyNat
+      if subtype ctx (typecheck (ctx,permissions,locks,minlock) t1) TyNat then TyNat
       else error fi "argument of pred is not a number"
   | TmIsZero(fi,t1) ->
-      if subtype ctx (typecheck (ctx,permissions,locks) t1) TyNat then TyBool
+      if subtype ctx (typecheck (ctx,permissions,locks,minlock) t1) TyNat then TyBool
       else error fi "argument of iszero is not a number"
   | TmFork(fi,t1) ->
       if isPermissionsEmpty permissions then
-      let tyT1 = typecheck (ctx,permissions,locks) t1 in TyThread(tyT1)
+      let tyT1 = typecheck (ctx,permissions,locks,minlock) t1 in TyThread(tyT1)
       else error fi "fork when there are un-released lock(s)"
   | TmWait(fi,t1) ->
-      let tyT1 = typecheck (ctx,permissions,locks) t1 in
+      let tyT1 = typecheck (ctx,permissions,locks,minlock) t1 in
       (match tyT1 with
           TyThread(tyT11) -> tyT11
         | _ -> error fi "thread type expected")
@@ -556,14 +566,18 @@ let rec typecheck (ctx,permissions,locks) t =
       error fi "no thread term should be explicit declared"
   | TmTid(fi) -> TyNat
   | TmSync(fi,t1,t2) ->
-      let tyT1 = typecheck (ctx,permissions,locks) t1 in 
+      let tyT1 = typecheck (ctx,permissions,locks,minlock) t1 in 
         (match tyT1 with 
             TyLock(ls) -> 
               let alreadyheld = foldlockset (fun l r -> 
                 if existPermission l permissions then (r ^ " " ^ l)
                 else r) ls "" in
               if alreadyheld = "" then 
-                let permissions' = foldlockset addPermission ls permissions in typecheck (ctx,permissions',locks) t2
+                let permissions',minlock' = 
+                  try foldlockset addPermission ls (permissions,minlock) 
+                    with AcquireLockOutOfOrder(p,min) -> error fi 
+                      ("Acquire lock out of order (which may cause dead lock): " ^ p ^ " over " ^ min) in
+                  typecheck (ctx,permissions',locks,minlock') t2
               else
                 error fi ("try to acquire lock already held (which may cause dead lock):" ^ alreadyheld)
           | _ -> error fi "sync with none-lock type")

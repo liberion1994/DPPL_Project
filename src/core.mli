@@ -14,7 +14,7 @@ val emptyLocks : locks
 val addLock : string -> locks -> locks
 
 
-val typecheck : (context * permissions * locks) -> term -> ty
+val typecheck : (context * permissions * locks * string) -> term -> ty
 val subtype : context -> ty -> ty -> bool
 val tyeqv : context -> ty -> ty -> bool
 val simplifyty : context -> ty -> ty

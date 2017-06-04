@@ -1,5 +1,5 @@
 
-/*
+
 /* 单线程测试，用于测试Typing */
 
 
@@ -17,15 +17,15 @@ let a = new Lock<T1,T2> in
 synchronized a in !(ref<T1> 0);
 /* 多加锁可以正常运行 */
 
-/*
+
 let a = new Lock<T1> in
   synchronized a in 
     synchronized a in 
       !(ref<T1> 0);
 /* 会死锁，嵌套取同一个锁 */
-*/
 
-/*
+
+
 let m = new Lock<M> in
   let g = lambda<M> z:Ref<M> Nat. z := succ (!z) in
   let y1 = ref<M> 1 in 
@@ -45,10 +45,10 @@ let m = new Lock<M> in
   let y1 = ref<M> 1 in
   synchronized m in g y1;
 /* lambda声明外部需要，如果内部再次synchronize也会报错（死锁） */
-*/
 
 
-/*
+
+
 let t = new Lock<T1> in
   let f1 = lambda f:Unit <T1> -> Nat. 
     synchronized t in f unit in
@@ -64,7 +64,7 @@ let t = new Lock<T1> in
 /* 报错，bind abstraction without explcit declaring forbidden lock (which may cause dead lock): T1 */
 
 /* 在var bind的时候，如果bind的是arrowtype，必须显式地指明该abstraction不能用哪些lock */
-*/
+
 
 
 let x = new Lock<X> in
@@ -95,7 +95,7 @@ let buf1 = ref<X> 0 in
 let flag = true in
   synchronized if flag then x else y in buf1 := 1;
 /* 报错，因为Lock<X>和Lock<Y>的join为Lock<empty>，因此访问buf1的时候有可能没有拿到锁X */
-*/
+
 
 
 /* ------------------------------------------------------------ */
@@ -116,7 +116,7 @@ checkParity = fix (lambda f:Nat->Bool->Bool. lambda n:Nat. lambda even:Bool.
 
 isEven = lambda n:Nat. checkParity n true;
 
-/*
+
 targetFunc = lambda _:Unit.
   if isEven tid then
     synchronized x in
@@ -135,8 +135,8 @@ targetFunc = lambda _:Unit.
         let _ = (buf1 := tmp2) in
           {res1=tmp2,res2=tmp1};
 /* 这个函数正常工作 */
-*/
 
+/*
 targetFunc = lambda _:Unit.
   if isEven tid then
     synchronized x in 
@@ -155,7 +155,7 @@ targetFunc = lambda _:Unit.
         let _ = (buf1 := tmp2) in
           {res1=tmp2,res2=tmp1};
 /* 这个函数会死锁 */
-
+*/
 
 /*
 t = synchronized x in fork { targetFunc unit };
