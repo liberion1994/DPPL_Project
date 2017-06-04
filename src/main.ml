@@ -81,7 +81,7 @@ let prbindingty (ctx,locks) b = match b with
 let rec process_command (ctx,locks) cmd = match cmd with
   | Eval(fi,t) -> 
       let tyT = typecheck (ctx,emptyPermissions,locks) t in
-      let t' = eval ctx t in
+      let t' = eval (ctx,locks) t in
       printtm_ATerm true ctx t'; 
       print_break 1 2;
       pr ": ";
@@ -90,7 +90,7 @@ let rec process_command (ctx,locks) cmd = match cmd with
       (ctx,locks)
   | Bind(fi,x,bind) -> 
       let bind,locks' = checkbinding fi (ctx,locks) bind in
-      let bind' = evalbinding ctx bind in
+      let bind' = evalbinding (ctx,locks) bind in
       pr x; pr " "; prbindingty (ctx,locks') bind'; force_newline();
       let ctx' = addbinding ctx x bind' in
       let _ = shiftstore 1 in (ctx',locks')

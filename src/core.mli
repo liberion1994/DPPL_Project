@@ -19,7 +19,7 @@ val subtype : context -> ty -> ty -> bool
 val tyeqv : context -> ty -> ty -> bool
 val simplifyty : context -> ty -> ty
 val shiftstore : int -> unit
-val eval : context -> term -> term
-val evalbinding : context -> binding -> binding
+val eval : (context * locks) -> term -> term
+val evalbinding : (context * locks) -> binding -> binding
 
 module StringMap : Map.S with type key = string

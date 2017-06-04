@@ -45,35 +45,57 @@ let updatestore n v =
 let shiftstore i = 
     store := List.map (fun t -> termShift i t) !store 
 
+
+
+module StringSet = Set.Make(String)
+type permissions = StringSet.t
+let emptyPermissions = StringSet.empty
+let addPermission permission permissions = StringSet.add permission permissions
+let isPermissionsEmpty = StringSet.is_empty
+let existPermission = StringSet.mem
+
+
+
+module StringMap = Map.Make (String)
+type locks = Mutex.t StringMap.t
+let emptyLocks : locks = StringMap.empty
+let addLock name locks = 
+  if name="_" then locks 
+  else StringMap.add name (Mutex.create ()) locks
+let existLock = StringMap.mem
+let getLock x locks =
+  let mtx = StringMap.find x locks in let _ =  Mutex.lock mtx in mtx
+let releaseLock = Mutex.unlock
+
 exception NoRuleApplies
 
-let rec eval1 ctx t = match t with
+let rec eval1 (ctx,locks) t = match t with
     TmApp(fi,TmAbs(_,x,tyT11,t12),v2) when isval ctx v2 ->
       termSubstTop v2 t12
   | TmApp(fi,v1,t2) when isval ctx v1 ->
-      let t2' = eval1 ctx t2 in
+      let t2' = eval1 (ctx,locks) t2 in
       TmApp(fi, v1, t2')
   | TmApp(fi,t1,t2) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmApp(fi, t1', t2)
   | TmIf(_,TmTrue(_),t2,t3) ->
       t2
   | TmIf(_,TmFalse(_),t2,t3) ->
       t3
   | TmIf(fi,t1,t2,t3) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmIf(fi, t1', t2, t3)
   | TmLet(fi,x,v1,t2) when isval ctx v1 ->
       termSubstTop v1 t2 
   | TmLet(fi,x,t1,t2) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmLet(fi, x, t1', t2) 
   | TmFix(fi,v1) as t when isval ctx v1 ->
       (match v1 with
          TmAbs(_,_,_,t12) -> termSubstTop t t12
        | _ -> raise NoRuleApplies)
   | TmFix(fi,t1) ->
-      let t1' = eval1 ctx t1
+      let t1' = eval1 (ctx,locks) t1
       in TmFix(fi,t1')
   | TmRecord(fi,fields) ->
       let rec evalafield l = match l with 
@@ -82,7 +104,7 @@ let rec eval1 ctx t = match t with
           let rest' = evalafield rest in
           (l,vi)::rest'
       | (l,ti)::rest -> 
-          let ti' = eval1 ctx ti in
+          let ti' = eval1 (ctx,locks) ti in
           (l, ti')::rest
       in let fields' = evalafield fields in
       TmRecord(fi, fields')
@@ -90,10 +112,10 @@ let rec eval1 ctx t = match t with
       (try List.assoc l fields
        with Not_found -> raise NoRuleApplies)
   | TmProj(fi, t1, l) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmProj(fi, t1', l)
   | TmTag(fi,l,t1,tyT) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmTag(fi, l, t1',tyT)
   | TmCase(fi,TmTag(_,li,v11,_),branches) when isval ctx v11->
       (try 
@@ -101,12 +123,12 @@ let rec eval1 ctx t = match t with
          termSubstTop v11 body
        with Not_found -> raise NoRuleApplies)
   | TmCase(fi,t1,branches) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmCase(fi, t1', branches)
   | TmAscribe(fi,v1,tyT) when isval ctx v1 ->
       v1
   | TmAscribe(fi,t1,tyT) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmAscribe(fi,t1',tyT)
   | TmVar(fi,n,_) ->
       (match getbinding fi ctx n with
@@ -114,24 +136,24 @@ let rec eval1 ctx t = match t with
         | _ -> raise NoRuleApplies)
   | TmRef(fi,t1,t2) ->
       if not (isval ctx t1) then
-        let t1' = eval1 ctx t1
+        let t1' = eval1 (ctx,locks) t1
         in TmRef(fi,t1',t2)
       else
         let l = extendstore t1 in
         TmLoc(dummyinfo,l)
   | TmDeref(fi,t1) ->
       if not (isval ctx t1) then
-        let t1' = eval1 ctx t1
+        let t1' = eval1 (ctx,locks) t1
         in TmDeref(fi,t1')
       else (match t1 with
             TmLoc(_,l) -> lookuploc l
           | _ -> raise NoRuleApplies)
   | TmAssign(fi,t1,t2) ->
       if not (isval ctx t1) then
-        let t1' = eval1 ctx t1
+        let t1' = eval1 (ctx,locks) t1
         in TmAssign(fi,t1',t2)
       else if not (isval ctx t2) then
-        let t2' = eval1 ctx t2
+        let t2' = eval1 (ctx,locks) t2
         in TmAssign(fi,t1,t2')
       else (match t1 with
             TmLoc(_,l) -> let _ = updatestore l t2 in TmUnit(dummyinfo)
@@ -139,32 +161,32 @@ let rec eval1 ctx t = match t with
   | TmTimesfloat(fi,TmFloat(_,f1),TmFloat(_,f2)) ->
       TmFloat(fi, f1 *. f2)
   | TmTimesfloat(fi,(TmFloat(_,f1) as t1),t2) ->
-      let t2' = eval1 ctx t2 in
+      let t2' = eval1 (ctx,locks) t2 in
       TmTimesfloat(fi,t1,t2')
   | TmTimesfloat(fi,t1,t2) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmTimesfloat(fi,t1',t2)
   | TmSucc(fi,t1) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmSucc(fi, t1')
   | TmPred(_,TmZero(_)) ->
       TmZero(dummyinfo)
   | TmPred(_,TmSucc(_,nv1)) when (isnumericval ctx nv1) ->
       nv1
   | TmPred(fi,t1) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmPred(fi, t1')
   | TmIsZero(_,TmZero(_)) ->
       TmTrue(dummyinfo)
   | TmIsZero(_,TmSucc(_,nv1)) when (isnumericval ctx nv1) ->
       TmFalse(dummyinfo)
   | TmIsZero(fi,t1) ->
-      let t1' = eval1 ctx t1 in
+      let t1' = eval1 (ctx,locks) t1 in
       TmIsZero(fi, t1')
   | TmFork(fi,t1) ->
       let channel = Event.new_channel () in
       let th = Thread.create (fun _ ->
-        try let t1' = eval ctx t1 in
+        try let t1' = eval (ctx,locks) t1 in
           (* should communicate to set store here *)
           let e = Event.send channel t1' in 
           let _ = Event.sync e in ()
@@ -177,31 +199,33 @@ let rec eval1 ctx t = match t with
       let e = Event.receive channel in
       Event.sync e
   | TmWait(fi,t1) ->
-      let t1' = eval1 ctx t1 in TmWait(fi,t1')
+      let t1' = eval1 (ctx,locks) t1 in TmWait(fi,t1')
   | TmTid(fi) ->
       let rec f n = match n with
               0 -> TmZero(fi)
             | n -> TmSucc(fi, f (n-1))
           in f (Thread.id (Thread.self ()))
   | TmSync(fi,v1,t2) when isval ctx v1 ->
-      (*acquire lock*)
-      let ret = eval ctx t2 in
-      (*release lock*)
-      ret
+      (match v1 with 
+          TmLock(_,l) ->
+            let mtx = getLock l locks in
+            let ret = eval (ctx,locks) t2 in 
+            let _ = releaseLock mtx in ret
+        | _ -> raise NoRuleApplies)
   | TmSync(fi,t1,t2) ->
-      let t1' = eval1 ctx t1 in TmSync(fi,t1',t2)
+      let t1' = eval1 (ctx,locks) t1 in TmSync(fi,t1',t2)
   | _ -> 
       raise NoRuleApplies
-and eval ctx t =
-  try let t' = eval1 ctx t
-      in eval ctx t'
+and eval (ctx,locks) t =
+  try let t' = eval1 (ctx,locks) t
+      in eval (ctx,locks) t'
   with NoRuleApplies -> t
 
 (* ------------------------   SUBTYPING  ------------------------ *)
 
-let evalbinding ctx b = match b with
+let evalbinding (ctx,locks) b = match b with
     TmAbbBind(t,tyT) ->
-      let t' = eval ctx t in 
+      let t' = eval (ctx,locks) t in 
       TmAbbBind(t',tyT)
   | bind -> bind
 
@@ -361,20 +385,6 @@ and meet ctx tyS tyT =
       TyBot
 
 (* ------------------------   TYPING  ------------------------ *)
-
-module StringSet = Set.Make(String)
-
-type permissions = StringSet.t
-let emptyPermissions = StringSet.empty
-let addPermission permission permissions = StringSet.add permission permissions
-let isPermissionsEmpty = StringSet.is_empty
-let existPermission = StringSet.mem
-
-module StringMap = Map.Make (String)
-type locks = (Mutex.t * Condition.t) StringMap.t
-let emptyLocks : locks = StringMap.empty
-let addLock name locks = StringMap.add name (Mutex.create (), Condition.create ()) locks
-let existLock = StringMap.mem
 
 let rec typeof ctx t =
   match t with
@@ -608,7 +618,6 @@ let rec typecheck (ctx,permissions,locks) t =
   | TmString _ -> TyString
   | TmUnit(fi) -> TyUnit
   | TmRef(fi,t1,l1) ->
-  (*todo*)
       if existLock l1 locks then TyRef(typecheck (ctx,permissions,locks) t1,l1) 
       else error fi ("ref locked by unbound lock: " ^ l1)
   | TmLoc(fi,l) ->
