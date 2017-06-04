@@ -50,7 +50,7 @@ let shiftstore i =
 module StringSet = Set.Make(String)
 type permissions = StringSet.t
 let emptyPermissions = StringSet.empty
-let addPermission permission permissions = StringSet.add permission permissions
+let addPermission = StringSet.add
 let isPermissionsEmpty = StringSet.is_empty
 let existPermission = StringSet.mem
 
@@ -59,9 +59,7 @@ let existPermission = StringSet.mem
 module StringMap = Map.Make (String)
 type locks = Mutex.t StringMap.t
 let emptyLocks : locks = StringMap.empty
-let addLock name locks = 
-  if name="_" then locks 
-  else StringMap.add name (Mutex.create ()) locks
+let addLock name locks = StringMap.add name (Mutex.create ()) locks
 let existLock = StringMap.mem
 let getLock x locks =
   let mtx = StringMap.find x locks in let _ =  Mutex.lock mtx in mtx
@@ -71,118 +69,121 @@ exception NoRuleApplies
 
 let rec eval1 (ctx,locks) t = match t with
     TmApp(fi,TmAbs(_,x,tyT11,t12),v2) when isval ctx v2 ->
-      termSubstTop v2 t12
+      (termSubstTop v2 t12,locks)
   | TmApp(fi,v1,t2) when isval ctx v1 ->
-      let t2' = eval1 (ctx,locks) t2 in
-      TmApp(fi, v1, t2')
+      let t2',locks' = eval1 (ctx,locks) t2 in
+      (TmApp(fi, v1, t2'),locks')
   | TmApp(fi,t1,t2) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmApp(fi, t1', t2)
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmApp(fi, t1', t2),locks')
   | TmIf(_,TmTrue(_),t2,t3) ->
-      t2
+      (t2,locks)
   | TmIf(_,TmFalse(_),t2,t3) ->
-      t3
+      (t3,locks)
   | TmIf(fi,t1,t2,t3) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmIf(fi, t1', t2, t3)
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmIf(fi, t1', t2, t3),locks')
   | TmLet(fi,x,v1,t2) when isval ctx v1 ->
-      termSubstTop v1 t2 
+      let locks' = match v1 with 
+          TmLock(fi,ls) -> foldlockset addLock ls locks
+        | _ -> locks in
+      (termSubstTop v1 t2,locks')
   | TmLet(fi,x,t1,t2) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmLet(fi, x, t1', t2) 
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmLet(fi, x, t1', t2),locks')
   | TmFix(fi,v1) as t when isval ctx v1 ->
       (match v1 with
-         TmAbs(_,_,_,t12) -> termSubstTop t t12
+         TmAbs(_,_,_,t12) -> (termSubstTop t t12,locks)
        | _ -> raise NoRuleApplies)
   | TmFix(fi,t1) ->
-      let t1' = eval1 (ctx,locks) t1
-      in TmFix(fi,t1')
+      let t1',locks' = eval1 (ctx,locks) t1
+      in (TmFix(fi,t1'),locks')
   | TmRecord(fi,fields) ->
-      let rec evalafield l = match l with 
+      let rec evalafield (l,locks) = match l with 
         [] -> raise NoRuleApplies
       | (l,vi)::rest when isval ctx vi -> 
-          let rest' = evalafield rest in
-          (l,vi)::rest'
+          let rest',locks' = evalafield (rest,locks) in
+          ((l,vi)::rest',locks')
       | (l,ti)::rest -> 
-          let ti' = eval1 (ctx,locks) ti in
-          (l, ti')::rest
-      in let fields' = evalafield fields in
-      TmRecord(fi, fields')
+          let ti',locks' = eval1 (ctx,locks) ti in
+          ((l, ti')::rest,locks')
+      in let fields',locks' = evalafield (fields,locks) in
+      (TmRecord(fi, fields'),locks')
   | TmProj(fi, (TmRecord(_, fields) as v1), l) when isval ctx v1 ->
-      (try List.assoc l fields
+      (try (List.assoc l fields,locks)
        with Not_found -> raise NoRuleApplies)
   | TmProj(fi, t1, l) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmProj(fi, t1', l)
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmProj(fi, t1', l),locks')
   | TmTag(fi,l,t1,tyT) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmTag(fi, l, t1',tyT)
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmTag(fi, l, t1',tyT),locks')
   | TmCase(fi,TmTag(_,li,v11,_),branches) when isval ctx v11->
       (try 
          let (x,body) = List.assoc li branches in
-         termSubstTop v11 body
+         (termSubstTop v11 body,locks)
        with Not_found -> raise NoRuleApplies)
   | TmCase(fi,t1,branches) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmCase(fi, t1', branches)
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmCase(fi, t1', branches),locks')
   | TmAscribe(fi,v1,tyT) when isval ctx v1 ->
-      v1
+      (v1,locks)
   | TmAscribe(fi,t1,tyT) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmAscribe(fi,t1',tyT)
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmAscribe(fi,t1',tyT),locks')
   | TmVar(fi,n,_) ->
       (match getbinding fi ctx n with
-          TmAbbBind(t,_) -> t 
+          TmAbbBind(t,_) -> (t,locks) 
         | _ -> raise NoRuleApplies)
   | TmRef(fi,t1,t2) ->
       if not (isval ctx t1) then
-        let t1' = eval1 (ctx,locks) t1
-        in TmRef(fi,t1',t2)
+        let t1',locks' = eval1 (ctx,locks) t1
+        in (TmRef(fi,t1',t2),locks')
       else
         let l = extendstore t1 in
-        TmLoc(dummyinfo,l)
+        (TmLoc(dummyinfo,l),locks)
   | TmDeref(fi,t1) ->
       if not (isval ctx t1) then
-        let t1' = eval1 (ctx,locks) t1
-        in TmDeref(fi,t1')
+        let t1',locks' = eval1 (ctx,locks) t1
+        in (TmDeref(fi,t1'),locks')
       else (match t1 with
-            TmLoc(_,l) -> lookuploc l
+            TmLoc(_,l) -> (lookuploc l,locks)
           | _ -> raise NoRuleApplies)
   | TmAssign(fi,t1,t2) ->
       if not (isval ctx t1) then
-        let t1' = eval1 (ctx,locks) t1
-        in TmAssign(fi,t1',t2)
+        let t1',locks' = eval1 (ctx,locks) t1
+        in (TmAssign(fi,t1',t2),locks')
       else if not (isval ctx t2) then
-        let t2' = eval1 (ctx,locks) t2
-        in TmAssign(fi,t1,t2')
+        let t2',locks' = eval1 (ctx,locks) t2
+        in (TmAssign(fi,t1,t2'),locks')
       else (match t1 with
-            TmLoc(_,l) -> let _ = updatestore l t2 in TmUnit(dummyinfo)
+            TmLoc(_,l) -> let _ = updatestore l t2 in (TmUnit(dummyinfo),locks)
           | _ -> raise NoRuleApplies)
   | TmTimesfloat(fi,TmFloat(_,f1),TmFloat(_,f2)) ->
-      TmFloat(fi, f1 *. f2)
+      (TmFloat(fi, f1 *. f2),locks)
   | TmTimesfloat(fi,(TmFloat(_,f1) as t1),t2) ->
-      let t2' = eval1 (ctx,locks) t2 in
-      TmTimesfloat(fi,t1,t2')
+      let t2',locks' = eval1 (ctx,locks) t2 in
+      (TmTimesfloat(fi,t1,t2'),locks')
   | TmTimesfloat(fi,t1,t2) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmTimesfloat(fi,t1',t2)
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmTimesfloat(fi,t1',t2),locks')
   | TmSucc(fi,t1) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmSucc(fi, t1')
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmSucc(fi, t1'),locks')
   | TmPred(_,TmZero(_)) ->
-      TmZero(dummyinfo)
+      (TmZero(dummyinfo),locks)
   | TmPred(_,TmSucc(_,nv1)) when (isnumericval ctx nv1) ->
-      nv1
+      (nv1,locks)
   | TmPred(fi,t1) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmPred(fi, t1')
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmPred(fi, t1'),locks')
   | TmIsZero(_,TmZero(_)) ->
-      TmTrue(dummyinfo)
+      (TmTrue(dummyinfo),locks)
   | TmIsZero(_,TmSucc(_,nv1)) when (isnumericval ctx nv1) ->
-      TmFalse(dummyinfo)
+      (TmFalse(dummyinfo),locks)
   | TmIsZero(fi,t1) ->
-      let t1' = eval1 (ctx,locks) t1 in
-      TmIsZero(fi, t1')
+      let t1',locks' = eval1 (ctx,locks) t1 in
+      (TmIsZero(fi, t1'),locks')
   | TmFork(fi,t1) ->
       let channel = Event.new_channel () in
       let th = Thread.create (fun _ ->
@@ -194,31 +195,31 @@ let rec eval1 (ctx,locks) t = match t with
           let _ = print_string "No rules apply in forked thread" in
           let e = Event.send channel t1 in 
           let _ = Event.sync e in ()) () in
-      TmThread(fi,th,channel)
+      (TmThread(fi,th,channel),locks)
   | TmWait(_,TmThread(fi,thread,channel)) ->
       let e = Event.receive channel in
-      Event.sync e
+      (Event.sync e,locks)
   | TmWait(fi,t1) ->
-      let t1' = eval1 (ctx,locks) t1 in TmWait(fi,t1')
+      let t1',locks' = eval1 (ctx,locks) t1 in (TmWait(fi,t1'),locks')
   | TmTid(fi) ->
       let rec f n = match n with
               0 -> TmZero(fi)
             | n -> TmSucc(fi, f (n-1))
-          in f (Thread.id (Thread.self ()))
+          in (f (Thread.id (Thread.self ())),locks)
   | TmSync(fi,v1,t2) when isval ctx v1 ->
       (match v1 with 
-          TmLock(_,l) ->
-            let mtx = getLock l locks in
+          TmLock(_,ls) ->
+            let mtxs = maplockset (fun name -> getLock name locks) ls in
             let ret = eval (ctx,locks) t2 in 
-            let _ = releaseLock mtx in ret
+            let _ = List.iter releaseLock mtxs in (ret,locks)
         | _ -> raise NoRuleApplies)
   | TmSync(fi,t1,t2) ->
-      let t1' = eval1 (ctx,locks) t1 in TmSync(fi,t1',t2)
+      let t1',locks' = eval1 (ctx,locks) t1 in (TmSync(fi,t1',t2),locks')
   | _ -> 
       raise NoRuleApplies
 and eval (ctx,locks) t =
-  try let t' = eval1 (ctx,locks) t
-      in eval (ctx,locks) t'
+  try let t',locks' = eval1 (ctx,locks) t
+      in eval (ctx,locks') t'
   with NoRuleApplies -> t
 
 (* ------------------------   SUBTYPING  ------------------------ *)
@@ -261,7 +262,7 @@ let rec tyeqv ctx tyS tyT =
   | (TyId(b1),TyId(b2)) -> b1=b2
   | (TyFloat,TyFloat) -> true
   | (TyUnit,TyUnit) -> true
-  | (TyRef(tyT1,l1),TyRef(tyT2,l2)) -> if l1=l2 then tyeqv ctx tyT1 tyT2 else false
+  | (TyRef(tyT1,l1),TyRef(tyT2,l2)) -> if locksetequal l1 l2 then tyeqv ctx tyT1 tyT2 else false
   | (TyVar(i,_), _) when istyabb ctx i ->
       tyeqv ctx (gettyabb ctx i) tyT
   | (_, TyVar(i,_)) when istyabb ctx i ->
@@ -285,7 +286,7 @@ let rec tyeqv ctx tyS tyT =
                (li1=li2) && tyeqv ctx tyTi1 tyTi2)
             fields1 fields2
   | (TyThread(tyT1),TyThread(tyT2)) -> tyeqv ctx tyT1 tyT2
-  | (TyLock(a), TyLock(b)) -> a=b
+  | (TyLock(a), TyLock(b)) -> locksetequal a b
   | _ -> false
 
 let rec subtype ctx tyS tyT =
@@ -314,9 +315,9 @@ let rec subtype ctx tyS tyT =
             with Not_found -> false)
          fS
    | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
-       subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1
-   | (TyLock(_),TyLock("_")) -> 
-       true
+       subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 && sublockset l2 l1
+   | (TyLock(l1),TyLock(l2)) -> 
+       sublockset l1 l2
    | (_,_) -> 
        false
 
@@ -342,10 +343,10 @@ let rec join ctx tyS tyT =
       TyArr(meet ctx  tyS1 tyT1, join ctx tyS2 tyT2)
   | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
       if subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 
-        then TyRef(tyT1,l1)
+        then TyRef(tyT1,unionlockset l1 l2)
         else TyTop
-  | (TyLock(_), TyLock(_)) ->
-      TyLock("_")
+  | (TyLock(a), TyLock(b)) ->
+      TyLock(interlockset a b)
   | _ -> 
       TyTop
 
@@ -379,152 +380,14 @@ and meet ctx tyS tyT =
       TyArr(join ctx tyS1 tyT1, meet ctx tyS2 tyT2)
   | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
       if subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 
-        then TyRef(tyT1,l1)
+        then TyRef(tyT1,interlockset l1 l2)
         else TyBot
+  | (TyLock(a), TyLock(b)) ->
+      TyLock(unionlockset a b)
   | _ -> 
       TyBot
 
 (* ------------------------   TYPING  ------------------------ *)
-
-let rec typeof ctx t =
-  match t with
-    TmInert(fi,tyT) ->
-      tyT
-  | TmVar(fi,i,_) -> getTypeFromContext fi ctx i
-  | TmAbs(fi,x,tyT1,t2) ->
-      let ctx' = addbinding ctx x (VarBind(tyT1)) in
-      let tyT2 = typeof ctx' t2 in
-      TyArr(tyT1, typeShift (-1) tyT2)
-  | TmApp(fi,t1,t2) ->
-      let tyT1 = typeof ctx t1 in
-      let tyT2 = typeof ctx t2 in
-      (match simplifyty ctx tyT1 with
-          TyArr(tyT11,tyT12) ->
-            if subtype ctx tyT2 tyT11 then tyT12
-            else error fi "parameter type mismatch" 
-        | TyBot -> TyBot
-        | _ -> error fi "arrow type expected")
-  | TmTrue(fi) -> 
-      TyBool
-  | TmFalse(fi) -> 
-      TyBool
-  | TmIf(fi,t1,t2,t3) ->
-      if subtype ctx (typeof ctx t1) TyBool then
-        join ctx (typeof ctx t2) (typeof ctx t3)
-      else error fi "guard of conditional not a boolean"
-  | TmLet(fi,x,t1,t2) ->
-     let tyT1 = typeof ctx t1 in
-     let ctx' = addbinding ctx x (VarBind(tyT1)) in         
-     typeShift (-1) (typeof ctx' t2)
-  | TmRecord(fi, fields) ->
-      let fieldtys = 
-        List.map (fun (li,ti) -> (li, typeof ctx ti)) fields in
-      TyRecord(fieldtys)
-  | TmProj(fi, t1, l) ->
-      (match simplifyty ctx (typeof ctx t1) with
-          TyRecord(fieldtys) ->
-            (try List.assoc l fieldtys
-             with Not_found -> error fi ("label "^l^" not found"))
-        | TyBot -> TyBot
-        | _ -> error fi "Expected record type")
-  | TmCase(fi, t, cases) ->
-      (match simplifyty ctx (typeof ctx t) with
-         TyVariant(fieldtys) ->
-           List.iter
-             (fun (li,(xi,ti)) ->
-                try let _ = List.assoc li fieldtys in ()
-                with Not_found -> error fi ("label "^li^" not in type"))
-             cases;
-           let casetypes =
-             List.map (fun (li,(xi,ti)) ->
-                         let tyTi =
-                           try List.assoc li fieldtys
-                           with Not_found ->
-                             error fi ("label "^li^" not found") in
-                         let ctx' = addbinding ctx xi (VarBind(tyTi)) in
-                         typeShift (-1) (typeof ctx' ti))
-                      cases in
-           List.fold_left (join ctx) TyBot casetypes
-        | TyBot -> TyBot
-        | _ -> error fi "Expected variant type")
-  | TmFix(fi, t1) ->
-      let tyT1 = typeof ctx t1 in
-      (match simplifyty ctx tyT1 with
-           TyArr(tyT11,tyT12) ->
-             if subtype ctx tyT12 tyT11 then tyT12
-             else error fi "result of body not compatible with domain"
-         | TyBot -> TyBot
-         | _ -> error fi "arrow type expected")
-  | TmTag(fi, li, ti, tyT) ->
-      (match simplifyty ctx tyT with
-          TyVariant(fieldtys) ->
-            (try
-               let tyTiExpected = List.assoc li fieldtys in
-               let tyTi = typeof ctx ti in
-               if subtype ctx tyTi tyTiExpected
-                 then tyT
-                 else error fi "field does not have expected type"
-             with Not_found -> error fi ("label "^li^" not found"))
-        | _ -> error fi "Annotation is not a variant type")
-  | TmAscribe(fi,t1,tyT) ->
-     if subtype ctx (typeof ctx t1) tyT then
-       tyT
-     else
-       error fi "body of as-term does not have the expected type"
-  | TmString _ -> TyString
-  | TmUnit(fi) -> TyUnit
-  | TmRef(fi,t1,t2) ->
-      TyRef(typeof ctx t1,t2) 
-  | TmLoc(fi,l) ->
-      error fi "locations are not supposed to occur in source programs!"
-  | TmDeref(fi,t1) ->
-      (*todo add permission constraints*)
-      (match simplifyty ctx (typeof ctx t1) with
-          TyRef(tyT1,l1) -> tyT1
-        | TyBot -> TyBot
-        | _ -> error fi "argument of ! is not a Ref")
-  | TmAssign(fi,t1,t2) ->
-      (match simplifyty ctx (typeof ctx t1) with
-          TyRef(tyT1,l1) ->
-            if subtype ctx (typeof ctx t2) tyT1 then
-              TyUnit
-            else
-              error fi "arguments of := are incompatible"
-        | TyBot -> let _ = typeof ctx t2 in TyBot
-        | _ -> error fi "argument of ! is not a Ref")
-  | TmFloat _ -> TyFloat
-  | TmTimesfloat(fi,t1,t2) ->
-      if subtype ctx (typeof ctx t1) TyFloat
-      && subtype ctx (typeof ctx t2) TyFloat then TyFloat
-      else error fi "argument of timesfloat is not a number"
-  | TmZero(fi) ->
-      TyNat
-  | TmSucc(fi,t1) ->
-      if subtype ctx (typeof ctx t1) TyNat then TyNat
-      else error fi "argument of succ is not a number"
-  | TmPred(fi,t1) ->
-      if subtype ctx (typeof ctx t1) TyNat then TyNat
-      else error fi "argument of pred is not a number"
-  | TmIsZero(fi,t1) ->
-      if subtype ctx (typeof ctx t1) TyNat then TyBool
-      else error fi "argument of iszero is not a number"
-  | TmFork(fi,t1) ->
-      let tyT1 = typeof ctx t1 in TyThread(tyT1)
-  | TmWait(fi,t1) ->
-      let tyT1 = typeof ctx t1 in
-      (match tyT1 with
-          TyThread(tyT11) -> tyT11
-        | _ -> error fi "thread type expected")
-  | TmThread(fi,_,_) ->
-      error fi "no thread term should be explicit declared"
-  | TmTid(fi) -> TyNat
-  | TmSync(fi,t1,t2) ->
-      let tyT1 = typeof ctx t1 in 
-        (match tyT1 with 
-            TyLock(_) -> typeof ctx t2
-          | _ -> error fi "sync with none-permission type")
-  | TmLock(fi,t1) -> (TyLock(t1))
-
 
 let rec typecheck (ctx,permissions,locks) t =
   match t with
@@ -556,8 +419,7 @@ let rec typecheck (ctx,permissions,locks) t =
      let tyT1 = typecheck (ctx,permissions,locks) t1 in
      let ctx' = addbinding ctx x (VarBind(tyT1)) in
      let locks' = (match tyT1 with 
-          TyLock("_") -> locks
-        | TyLock(v) -> addLock v locks
+          TyLock(ls) -> foldlockset addLock ls locks
         | _ -> locks) in
      typeShift (-1) (typecheck (ctx',permissions,locks') t2)
   | TmRecord(fi, fields) ->
@@ -618,15 +480,21 @@ let rec typecheck (ctx,permissions,locks) t =
   | TmString _ -> TyString
   | TmUnit(fi) -> TyUnit
   | TmRef(fi,t1,l1) ->
-      if existLock l1 locks then TyRef(typecheck (ctx,permissions,locks) t1,l1) 
-      else error fi ("ref locked by unbound lock: " ^ l1)
+      let unbound = foldlockset (fun l r -> 
+        if existLock l locks then r 
+        else (r ^ " " ^ l)) l1 "" in
+      if unbound = "" then TyRef(typecheck (ctx,permissions,locks) t1,l1) 
+      else error fi ("ref locked by unbound lock:" ^ unbound)
   | TmLoc(fi,l) ->
       error fi "locations are not supposed to occur in source programs!"
   | TmDeref(fi,t1) ->
       (match simplifyty ctx (typecheck (ctx,permissions,locks) t1) with
           TyRef(tyT1,l1) -> 
-            if existPermission l1 permissions then tyT1 
-            else error fi ("Access to memory without holding the lock: " ^ l1)
+            let unheld = foldlockset (fun l r -> 
+                if existPermission l permissions then r
+                else (r ^ " " ^ l)) l1 "" in
+            if unheld = "" then tyT1
+            else error fi ("Access to memory without holding the lock:" ^ unheld)
         | TyBot -> TyBot
         | _ -> error fi "argument of ! is not a Ref")
   | TmAssign(fi,t1,t2) ->
@@ -634,8 +502,11 @@ let rec typecheck (ctx,permissions,locks) t =
       (match simplifyty ctx (typecheck (ctx,permissions,locks) t1) with
           TyRef(tyT1,l1) ->
             if subtype ctx (typecheck (ctx,permissions,locks) t2) tyT1 then
-              if existPermission l1 permissions then TyUnit 
-              else error fi ("Access to memory without holding the lock: " ^ l1)
+              let unheld = foldlockset (fun l r -> 
+                if existPermission l permissions then r
+                else (r ^ " " ^ l)) l1 "" in
+              if unheld = "" then tyT1
+              else error fi ("Access to memory without holding the lock:" ^ unheld)
             else
               error fi "arguments of := are incompatible"
         | TyBot -> let _ = typecheck (ctx,permissions,locks) t2 in TyBot
@@ -659,7 +530,7 @@ let rec typecheck (ctx,permissions,locks) t =
   | TmFork(fi,t1) ->
       if isPermissionsEmpty permissions then
       let tyT1 = typecheck (ctx,permissions,locks) t1 in TyThread(tyT1)
-      else error fi "fork when there are un-released lock"
+      else error fi "fork when there are un-released lock(s)"
   | TmWait(fi,t1) ->
       let tyT1 = typecheck (ctx,permissions,locks) t1 in
       (match tyT1 with
@@ -671,8 +542,14 @@ let rec typecheck (ctx,permissions,locks) t =
   | TmSync(fi,t1,t2) ->
       let tyT1 = typecheck (ctx,permissions,locks) t1 in 
         (match tyT1 with 
-            TyLock(l) -> 
-              let permissions' = addPermission l permissions in typecheck (ctx,permissions',locks) t2
+            TyLock(ls) -> 
+              let alreadyheld = foldlockset (fun l r -> 
+                if existPermission l permissions then (r ^ " " ^ l)
+                else r) ls "" in
+              if alreadyheld = "" then 
+                let permissions' = foldlockset addPermission ls permissions in typecheck (ctx,permissions',locks) t2
+              else
+                error fi ("try to acquire lock already held (which may cause dead lock):" ^ alreadyheld)
           | _ -> error fi "sync with none-lock type")
   | TmLock(fi,t1) -> (TyLock(t1))
 

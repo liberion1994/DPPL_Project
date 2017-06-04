@@ -1,7 +1,27 @@
 
-/* 这里可以做Lock类型的偏序关系，Lock<X>是Lock<_>的子类，Lock<X,Y>是Lock<X>的子类 */
 
-/*
+/* 单线程测试，用于测试Typing */
+
+
+if true then new Lock<T1,T2> else new Lock<T1,T3>;
+/* lock<T1,T2> : Lock<T1> */
+
+let l1 = new Lock<T1,T2> in
+let l2 = new Lock<T1,T3> in
+let t1 = ref<T1,T2> 0 in
+let t2 = ref<T1,T3> 0 in
+if true then t1 else t2;
+/* <loc #0> : Ref<T1,T2,T3> Nat */
+
+let a = new Lock<T1,T2> in
+synchronized a in !(ref<T1> 0);
+/* 多加锁可以正常运行 */
+
+let a = new Lock<T1> in
+  synchronized a in 
+    synchronized a in 
+      !(ref<T1> 0);
+/* 会死锁，嵌套取同一个锁 */
 
 let x = new Lock<X> in
 let y = new Lock<X> in
@@ -30,9 +50,15 @@ let y = new Lock<Y> in
 let buf1 = ref<X> 0 in
 let flag = true in
   synchronized if flag then x else y in buf1 := 1;
-/* 报错，因为Lock<X>和Lock<Y>的join为Lock<_>，因此访问buf1的时候有可能没有拿到锁X */
+/* 报错，因为Lock<X>和Lock<Y>的join为Lock<empty>，因此访问buf1的时候有可能没有拿到锁X */
 
-*/
+
+
+/* ------------------------------------------------------------ */
+
+/*
+/* 多线程测试，用于测试Evaluating */
+
 
 x = new Lock<X>;
 y = new Lock<Y>;
@@ -46,21 +72,51 @@ checkParity = fix (lambda f:Nat->Bool->Bool. lambda n:Nat. lambda even:Bool.
 
 isEven = lambda n:Nat. checkParity n true;
 
+/*
 targetFunc = lambda _:Unit.
-  synchronized x in 
-  synchronized y in
-    if isEven tid then
+  if isEven tid then
+    synchronized x in
+      synchronized y in
+        let tmp1 = succ (!buf1) in
+        let _ = (buf1 := tmp1) in
+        let tmp2 = pred (!buf2) in
+        let _ = (buf2 := tmp2) in
+          {res1=tmp1,res2=tmp2}
+  else
+    synchronized x in
+      synchronized y in
+        let tmp1 = pred (!buf2) in
+        let _ = (buf2 := tmp1) in
+        let tmp2 = succ (!buf1) in
+        let _ = (buf1 := tmp2) in
+          {res1=tmp2,res2=tmp1};
+/* 这个函数正常工作 */
+*/
+
+targetFunc = lambda _:Unit.
+  if isEven tid then
+    synchronized x in 
       let tmp1 = succ (!buf1) in
       let _ = (buf1 := tmp1) in
-      let tmp2 = pred (!buf2) in
-      let _ = (buf2 := tmp2) in
-      {res1=tmp1,res2=tmp2}
-    else
+      synchronized y in
+        let tmp2 = pred (!buf2) in
+        let _ = (buf2 := tmp2) in
+          {res1=tmp1,res2=tmp2}
+  else
+    synchronized y in
       let tmp1 = pred (!buf2) in
       let _ = (buf2 := tmp1) in
-      let tmp2 = succ (!buf1) in
-      let _ = (buf1 := tmp2) in
-      {res1=tmp2,res2=tmp1};
+      synchronized x in
+        let tmp2 = succ (!buf1) in
+        let _ = (buf1 := tmp2) in
+          {res1=tmp2,res2=tmp1};
+/* 这个函数会死锁 */
+
+
+/*
+t = synchronized x in fork { targetFunc unit };
+/* 报错，持有锁的情况下fork */
+*/
 
 t1 = fork { targetFunc unit };
 t2 = fork { targetFunc unit };
@@ -87,3 +143,4 @@ wait t10;
 synchronized x in !buf1;
 synchronized y in !buf2;
 
+*/

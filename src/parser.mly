@@ -163,8 +163,8 @@ Binder :
 Type :
     ArrowType
                 { $1 }
-  | RREF LT UCID GT AType
-      { fun ctx -> TyRef($5 ctx,$3.v) }
+  | RREF LT LockFields GT AType
+      { fun ctx -> TyRef($5 ctx,$3) }
   | THREAD AType
       { fun ctx -> TyThread($2 ctx) }
 
@@ -246,8 +246,8 @@ Term :
       { fun ctx -> TmFork($1, $3 ctx) }
   | SYNC Term IN Term
       { fun ctx -> TmSync($1, $2 ctx, $4 ctx) }
-  | NEW LOCK LT UCID GT
-      { fun ctx -> TmLock($1, $4.v) }
+  | NEW LOCK LT LockFields GT
+      { fun ctx -> TmLock($1, $4) }
 
 AppTerm :
     PathTerm
@@ -260,8 +260,8 @@ AppTerm :
   | FIX PathTerm
       { fun ctx ->
           TmFix($1, $2 ctx) }
-  | REF LT UCID GT PathTerm
-      { fun ctx -> TmRef($1, $5 ctx, $3.v) }
+  | REF LT LockFields GT PathTerm
+      { fun ctx -> TmRef($1, $5 ctx, $3) }
   | BANG PathTerm 
       { fun ctx -> TmDeref($1, $2 ctx) }
   | TIMESFLOAT PathTerm PathTerm
@@ -366,6 +366,12 @@ Field :
       { fun ctx i -> ($1.v, $3 ctx) }
   | Term
       { fun ctx i -> (string_of_int i, $1 ctx) }
+
+LockFields :
+    UCID
+      { newlockset $1.v }
+  | UCID COMMA LockFields
+      { appendlock $1.v $3 }
 
 Cases :
     Case

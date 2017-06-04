@@ -2,6 +2,24 @@ open Format
 open Support.Error
 open Support.Pervasive
 
+
+module StringSet = Set.Make(String)
+type lockset = StringSet.t
+let appendlock x xs = 
+  if StringSet.mem x xs then raise Parsing.Parse_error 
+  else StringSet.add x xs
+let newlockset x = StringSet.singleton x
+let printlockset s = 
+  let s = StringSet.elements s in
+  print_string ("<" ^ List.hd s);
+  List.iter (fun a -> print_string ("," ^ a)) (List.tl s);
+  print_string ">";;
+let maplockset f ls = List.map f (StringSet.elements ls)
+let interlockset = StringSet.inter
+let unionlockset = StringSet.union
+let foldlockset f ls i = StringSet.fold f ls i
+let sublockset = StringSet.subset
+let locksetequal = StringSet.equal
 (* ---------------------------------------------------------------------- *)
 (* Datatypes *)
 
@@ -13,14 +31,14 @@ type ty =
   | TyArr of ty * ty
   | TyRecord of (string * ty) list
   | TyVariant of (string * ty) list
-  | TyRef of ty * string
+  | TyRef of ty * lockset
   | TyBool
   | TyString
   | TyUnit
   | TyFloat
   | TyNat
   | TyThread of ty
-  | TyLock of string
+  | TyLock of lockset
 
 type term =
     TmVar of info * int * int
@@ -39,7 +57,7 @@ type term =
   | TmString of info * string
   | TmUnit of info
   | TmLoc of info * int
-  | TmRef of info * term * string
+  | TmRef of info * term * lockset
   | TmDeref of info * term 
   | TmAssign of info * term * term
   | TmFloat of info * float
@@ -54,7 +72,7 @@ type term =
   | TmThread of info * Thread.t * term Event.channel
   | TmTid of info
   | TmSync of info * term * term
-  | TmLock of info * string
+  | TmLock of info * lockset
 
 type binding =
     NameBind 
@@ -68,6 +86,7 @@ type context = (string * binding) list
 type command =
   | Eval of info * term
   | Bind of info * string * binding
+
 
 (* ---------------------------------------------------------------------- *)
 (* Context management *)
@@ -309,7 +328,7 @@ let small t =
   | _ -> false
 
 let rec printty_Type outer ctx tyT = match tyT with
-    TyRef(tyT,l) -> pr ("Ref<" ^ l ^ ">"); printty_AType false ctx tyT
+    TyRef(tyT,l) -> pr "Ref"; printlockset l; print_space (); printty_AType false ctx tyT
   | TyThread(tyT) -> pr "Thread "; printty_AType false ctx tyT
   | tyT -> printty_ArrowType outer ctx tyT
 
@@ -363,7 +382,7 @@ and printty_AType outer ctx tyT = match tyT with
   | TyUnit -> pr "Unit"
   | TyFloat -> pr "Float"
   | TyNat -> pr "Nat"
-  | TyLock(a) -> pr ("Lock<" ^ a ^ ">")
+  | TyLock(a) -> pr ("Lock"); printlockset a
   | tyT -> pr "("; printty_Type outer ctx tyT; pr ")"
 
 let printty ctx tyT = printty_Type true ctx tyT 
@@ -434,7 +453,7 @@ and printtm_AppTerm outer ctx t = match t with
       cbox()
   | TmRef(fi, t1, t2) ->
        obox();
-       pr ("ref<" ^ t2 ^ ">");
+       pr "ref"; printlockset t2;
        printtm_ATerm false ctx t1;
        cbox()
   | TmDeref(fi, t1) ->
@@ -512,7 +531,7 @@ and printtm_ATerm outer ctx t = match t with
       print_string ("thread<" ^ (string_of_int (Thread.id thread)) ^ ">");
       cbox()
   | TmLock(_,t) ->
-      pr ("lock<" ^ t ^ ">");
+      pr ("lock"); printlockset t;
   | t -> pr "("; printtm_Term outer ctx t; pr ")"
 
 let printtm ctx t = printtm_Term true ctx t 

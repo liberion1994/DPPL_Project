@@ -3,6 +3,16 @@
 open Support.Pervasive
 open Support.Error
 
+
+type lockset
+val appendlock : string -> lockset -> lockset
+val newlockset : string -> lockset
+val maplockset : (string -> 'a) -> lockset -> 'a list
+val interlockset : lockset -> lockset -> lockset
+val unionlockset : lockset -> lockset -> lockset
+val foldlockset : (string -> 'a -> 'a) -> lockset -> 'a -> 'a
+val sublockset : lockset -> lockset -> bool
+val locksetequal : lockset -> lockset -> bool
 (* Data type definitions *)
 type ty =
     TyVar of int * int
@@ -12,14 +22,14 @@ type ty =
   | TyArr of ty * ty
   | TyRecord of (string * ty) list
   | TyVariant of (string * ty) list
-  | TyRef of ty * string
+  | TyRef of ty * lockset
   | TyBool
   | TyString
   | TyUnit
   | TyFloat
   | TyNat
   | TyThread of ty
-  | TyLock of string
+  | TyLock of lockset
 
 type term =
     TmVar of info * int * int
@@ -38,7 +48,7 @@ type term =
   | TmString of info * string
   | TmUnit of info
   | TmLoc of info * int
-  | TmRef of info * term * string
+  | TmRef of info * term * lockset
   | TmDeref of info * term 
   | TmAssign of info * term * term
   | TmFloat of info * float
@@ -53,7 +63,7 @@ type term =
   | TmThread of info * Thread.t * term Event.channel
   | TmTid of info
   | TmSync of info * term * term
-  | TmLock of info * string
+  | TmLock of info * lockset
 
 
 type binding =

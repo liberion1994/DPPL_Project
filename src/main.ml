@@ -55,14 +55,12 @@ let checkbinding fi (ctx,locks) b = match b with
   | VarBind(tyT) -> (VarBind(tyT),locks)
   | TmAbbBind(t,None) -> 
       let tyT = typecheck (ctx,emptyPermissions,locks) t in (match tyT with 
-          TyLock("_") -> (TmAbbBind(t, Some(tyT)),locks)
-        | TyLock(v) -> (TmAbbBind(t, Some(tyT)),addLock v locks)
+          TyLock(ls) -> (TmAbbBind(t, Some(tyT)), foldlockset addLock ls locks)
         | _ -> (TmAbbBind(t, Some(tyT)),locks))
   | TmAbbBind(t,Some(tyT)) ->
       let tyT' = typecheck (ctx,emptyPermissions,locks) t in
       if subtype ctx tyT' tyT then (match tyT with 
-          TyLock("_") -> (TmAbbBind(t, Some(tyT)),locks)
-        | TyLock(v) -> (TmAbbBind(t, Some(tyT)),addLock v locks)
+          TyLock(ls) -> (TmAbbBind(t, Some(tyT)), foldlockset addLock ls locks)
         | _ -> (TmAbbBind(t, Some(tyT)),locks))
       else error fi "Type of binding does not match declared type"
   | TyVarBind -> (TyVarBind,locks)
