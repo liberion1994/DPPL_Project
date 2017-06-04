@@ -209,7 +209,9 @@ TyBinder :
    arrows. */
 ArrowType :
     AType ARROW ArrowType
-     { fun ctx -> TyArr($1 ctx, $3 ctx) }
+     { fun ctx -> TyArr($1 ctx, $3 ctx, emptylockset) }
+  | AType ARROW LT LockFields GT ArrowType
+     { fun ctx -> TyArr($1 ctx, $6 ctx, $4) }
   | AType
             { $1 }
 
@@ -219,22 +221,25 @@ Term :
   | LAMBDA LCID COLON Type DOT Term 
       { fun ctx ->
           let ctx1 = addname ctx $2.v in
-          TmAbs($1, $2.v, $4 ctx, $6 ctx1) }
+          TmAbs($1, $2.v, $4 ctx, $6 ctx1, emptylockset) }
+  | LAMBDA LT LockFields GT LCID COLON Type DOT Term 
+      { fun ctx ->
+          let ctx1 = addname ctx $5.v in
+          TmAbs($1, $5.v, $7 ctx, $9 ctx1, $3) }
   | LAMBDA USCORE COLON Type DOT Term 
       { fun ctx ->
           let ctx1 = addname ctx "_" in
-          TmAbs($1, "_", $4 ctx, $6 ctx1) }
+          TmAbs($1, "_", $4 ctx, $6 ctx1, emptylockset) }
+  | LAMBDA LT LockFields GT USCORE COLON Type DOT Term 
+      { fun ctx ->
+          let ctx1 = addname ctx "_" in
+          TmAbs($1, "_", $7 ctx, $9 ctx1, $3) }
   | IF Term THEN Term ELSE Term
       { fun ctx -> TmIf($1, $2 ctx, $4 ctx, $6 ctx) }
   | LET LCID EQ Term IN Term
       { fun ctx -> TmLet($1, $2.v, $4 ctx, $6 (addname ctx $2.v)) }
   | LET USCORE EQ Term IN Term
       { fun ctx -> TmLet($1, "_", $4 ctx, $6 (addname ctx "_")) }
-  | LETREC LCID COLON Type EQ Term IN Term
-      { fun ctx -> 
-          let ctx1 = addname ctx $2.v in 
-          TmLet($1, $2.v, TmFix($1, TmAbs($1, $2.v, $4 ctx, $6 ctx1)),
-                $8 ctx1) }
   | CASE Term OF Cases
       { fun ctx ->
           TmCase($1, $2 ctx, $4 ctx) }
@@ -313,7 +318,7 @@ TermSeq :
       { $1 }
   | Term SEMI TermSeq 
       { fun ctx ->
-          TmApp($2, TmAbs($2, "_", TyUnit, $3 (addname ctx "_")), $1 ctx) }
+          TmApp($2, TmAbs($2, "_", TyUnit, $3 (addname ctx "_"), emptylockset), $1 ctx) }
 
 /* Atomic terms are ones that never require extra parentheses */
 ATerm :
@@ -366,6 +371,8 @@ Field :
       { fun ctx i -> ($1.v, $3 ctx) }
   | Term
       { fun ctx i -> (string_of_int i, $1 ctx) }
+
+
 
 LockFields :
     UCID

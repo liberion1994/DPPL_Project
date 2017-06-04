@@ -19,7 +19,7 @@ let rec isval ctx t = match t with
   | TmLoc(_,_) -> true
   | TmFloat _  -> true
   | t when isnumericval ctx t  -> true
-  | TmAbs(_,_,_,_) -> true
+  | TmAbs(_,_,_,_,_) -> true
   | TmRecord(_,fields) -> List.for_all (fun (l,ti) -> isval ctx ti) fields
   | TmThread(_,_,_) -> true
   | TmLock(_,_) -> true
@@ -68,7 +68,7 @@ let releaseLock = Mutex.unlock
 exception NoRuleApplies
 
 let rec eval1 (ctx,locks) t = match t with
-    TmApp(fi,TmAbs(_,x,tyT11,t12),v2) when isval ctx v2 ->
+    TmApp(fi,TmAbs(_,x,tyT11,t12,ls),v2) when isval ctx v2 ->
       (termSubstTop v2 t12,locks)
   | TmApp(fi,v1,t2) when isval ctx v1 ->
       let t2',locks' = eval1 (ctx,locks) t2 in
@@ -93,7 +93,7 @@ let rec eval1 (ctx,locks) t = match t with
       (TmLet(fi, x, t1', t2),locks')
   | TmFix(fi,v1) as t when isval ctx v1 ->
       (match v1 with
-         TmAbs(_,_,_,t12) -> (termSubstTop t t12,locks)
+         TmAbs(_,_,_,t12,ls) -> (termSubstTop t t12,locks)
        | _ -> raise NoRuleApplies)
   | TmFix(fi,t1) ->
       let t1',locks' = eval1 (ctx,locks) t1
@@ -256,13 +256,13 @@ let rec tyeqv ctx tyS tyT =
   match (tyS,tyT) with
     (TyTop,TyTop) -> true
   | (TyBot,TyBot) -> true
-  | (TyArr(tyS1,tyS2),TyArr(tyT1,tyT2)) ->
-       (tyeqv ctx tyS1 tyT1) && (tyeqv ctx tyS2 tyT2)
+  | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
+       (tyeqv ctx tyS1 tyT1) && (tyeqv ctx tyS2 tyT2) && locksetequal l1 l2
   | (TyString,TyString) -> true
   | (TyId(b1),TyId(b2)) -> b1=b2
   | (TyFloat,TyFloat) -> true
   | (TyUnit,TyUnit) -> true
-  | (TyRef(tyT1,l1),TyRef(tyT2,l2)) -> if locksetequal l1 l2 then tyeqv ctx tyT1 tyT2 else false
+  | (TyRef(tyT1,l1),TyRef(tyT2,l2)) -> locksetequal l1 l2 && tyeqv ctx tyT1 tyT2
   | (TyVar(i,_), _) when istyabb ctx i ->
       tyeqv ctx (gettyabb ctx i) tyT
   | (_, TyVar(i,_)) when istyabb ctx i ->
@@ -298,8 +298,8 @@ let rec subtype ctx tyS tyT =
        true
    | (TyBot,_) -> 
        true
-   | (TyArr(tyS1,tyS2),TyArr(tyT1,tyT2)) ->
-       (subtype ctx tyT1 tyS1) && (subtype ctx tyS2 tyT2)
+   | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
+       (subtype ctx tyT1 tyS1) && (subtype ctx tyS2 tyT2) && sublockset l2 l1
    | (TyRecord(fS), TyRecord(fT)) ->
        List.for_all
          (fun (li,tyTi) -> 
@@ -339,8 +339,8 @@ let rec join ctx tyS tyT =
                     (li, join ctx tySi tyTi))
                  commonLabels in
       TyRecord(commonFields)
-  | (TyArr(tyS1,tyS2),TyArr(tyT1,tyT2)) ->
-      TyArr(meet ctx  tyS1 tyT1, join ctx tyS2 tyT2)
+  | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
+      TyArr(meet ctx  tyS1 tyT1, join ctx tyS2 tyT2,unionlockset l1 l2)
   | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
       if subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 
         then TyRef(tyT1,unionlockset l1 l2)
@@ -376,8 +376,8 @@ and meet ctx tyS tyT =
                       (li, List.assoc li fT))
                  allLabels in
       TyRecord(allFields)
-  | (TyArr(tyS1,tyS2),TyArr(tyT1,tyT2)) ->
-      TyArr(join ctx tyS1 tyT1, meet ctx tyS2 tyT2)
+  | (TyArr(tyS1,tyS2,l1),TyArr(tyT1,tyT2,l2)) ->
+      TyArr(join ctx tyS1 tyT1, meet ctx tyS2 tyT2,interlockset l1 l2)
   | (TyRef(tyT1,l1),TyRef(tyT2,l2)) ->
       if subtype ctx tyT1 tyT2 && subtype ctx tyT2 tyT1 
         then TyRef(tyT1,interlockset l1 l2)
@@ -394,16 +394,23 @@ let rec typecheck (ctx,permissions,locks) t =
     TmInert(fi,tyT) ->
       tyT
   | TmVar(fi,i,_) -> getTypeFromContext fi ctx i
-  | TmAbs(fi,x,tyT1,t2) ->
+  | TmAbs(fi,x,tyT1,t2,ls) ->
       let ctx' = addbinding ctx x (VarBind(tyT1)) in
-      let tyT2 = typecheck (ctx',permissions,locks) t2 in
-      TyArr(tyT1, typeShift (-1) tyT2)
+      let permissions' = foldlockset addPermission ls permissions in
+      let tyT2 = typecheck (ctx',permissions',locks) t2 in
+      TyArr(tyT1, typeShift (-1) tyT2,ls)
   | TmApp(fi,t1,t2) ->
+  (*todo typing application的时候需要知道t1需要的外部锁，然后check有没有在手里*)
       let tyT1 = typecheck (ctx,permissions,locks) t1 in
       let tyT2 = typecheck (ctx,permissions,locks) t2 in
       (match simplifyty ctx tyT1 with
-          TyArr(tyT11,tyT12) ->
-            if subtype ctx tyT2 tyT11 then tyT12
+          TyArr(tyT11,tyT12,ls) ->
+            if subtype ctx tyT2 tyT11 then 
+              let unheld = foldlockset (fun l r -> 
+                if existPermission l permissions then r
+                else (r ^ " " ^ l)) ls "" in
+              if unheld = "" then tyT12
+              else error fi ("Application without holding the lock:" ^ unheld)
             else error fi "parameter type mismatch" 
         | TyBot -> TyBot
         | _ -> error fi "arrow type expected")
@@ -456,7 +463,7 @@ let rec typecheck (ctx,permissions,locks) t =
   | TmFix(fi, t1) ->
       let tyT1 = typecheck (ctx,permissions,locks) t1 in
       (match simplifyty ctx tyT1 with
-           TyArr(tyT11,tyT12) ->
+           TyArr(tyT11,tyT12,ls) ->
              if subtype ctx tyT12 tyT11 then tyT12
              else error fi "result of body not compatible with domain"
          | TyBot -> TyBot

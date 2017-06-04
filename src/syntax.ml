@@ -8,6 +8,7 @@ type lockset = StringSet.t
 let appendlock x xs = 
   if StringSet.mem x xs then raise Parsing.Parse_error 
   else StringSet.add x xs
+let emptylockset = StringSet.empty
 let newlockset x = StringSet.singleton x
 let printlockset s = 
   let s = StringSet.elements s in
@@ -28,7 +29,7 @@ type ty =
   | TyTop
   | TyBot
   | TyId of string
-  | TyArr of ty * ty
+  | TyArr of ty * ty * lockset
   | TyRecord of (string * ty) list
   | TyVariant of (string * ty) list
   | TyRef of ty * lockset
@@ -42,7 +43,7 @@ type ty =
 
 type term =
     TmVar of info * int * int
-  | TmAbs of info * string * ty * term
+  | TmAbs of info * string * ty * term * lockset
   | TmApp of info * term * term
   | TmTrue of info
   | TmFalse of info
@@ -133,7 +134,7 @@ let tymap onvar c tyT =
   let rec walk c tyT = match tyT with
     TyVar(x,n) -> onvar c x n
   | TyId(b) as tyT -> tyT
-  | TyArr(tyT1,tyT2) -> TyArr(walk c tyT1,walk c tyT2)
+  | TyArr(tyT1,tyT2,ls) -> TyArr(walk c tyT1,walk c tyT2,ls)
   | TyTop -> TyTop
   | TyBool -> TyBool
   | TyRecord(fieldtys) -> TyRecord(List.map (fun (li,tyTi) -> (li, walk c tyTi)) fieldtys)
@@ -152,7 +153,7 @@ let tmmap onvar ontype c t =
   let rec walk c t = match t with
     TmInert(fi,tyT) -> TmInert(fi,ontype c tyT)
   | TmVar(fi,x,n) -> onvar fi c x n
-  | TmAbs(fi,x,tyT1,t2) -> TmAbs(fi,x,ontype c tyT1,walk (c+1) t2)
+  | TmAbs(fi,x,tyT1,t2,ls) -> TmAbs(fi,x,ontype c tyT1,walk (c+1) t2,ls)
   | TmApp(fi,t1,t2) -> TmApp(fi,walk c t1,walk c t2)
   | TmTrue(fi) as t -> t
   | TmFalse(fi) as t -> t
@@ -270,7 +271,7 @@ let rec getbinding fi ctx i =
 let tmInfo t = match t with
     TmInert(fi,_) -> fi
   | TmVar(fi,_,_) -> fi
-  | TmAbs(fi,_,_,_) -> fi
+  | TmAbs(fi,_,_,_,_) -> fi
   | TmApp(fi,_,_) -> fi
   | TmTrue(fi) -> fi
   | TmFalse(fi) -> fi
@@ -333,11 +334,13 @@ let rec printty_Type outer ctx tyT = match tyT with
   | tyT -> printty_ArrowType outer ctx tyT
 
 and printty_ArrowType outer ctx  tyT = match tyT with 
-    TyArr(tyT1,tyT2) ->
+    TyArr(tyT1,tyT2,ls) ->
       obox0(); 
       printty_AType false ctx tyT1;
       if outer then pr " ";
       pr "->";
+      if StringSet.cardinal ls > 0 then 
+          printlockset ls; 
       if outer then print_space() else break();
       printty_ArrowType outer ctx tyT2;
       cbox()
@@ -388,36 +391,39 @@ and printty_AType outer ctx tyT = match tyT with
 let printty ctx tyT = printty_Type true ctx tyT 
 
 let rec printtm_Term outer ctx t = match t with
-    TmAbs(fi,x,tyT1,t2) ->
+    TmAbs(fi,x,tyT1,t2,ls) ->
       (let (ctx',x') = (pickfreshname ctx x) in
-         obox(); pr "lambda ";
-         pr x'; pr ":"; printty_Type false ctx tyT1; pr ".";
-         if (small t2) && not outer then break() else print_space();
-         printtm_Term outer ctx' t2;
-         cbox())
+        obox(); pr "lambda"; 
+        if StringSet.cardinal ls > 0 then 
+          printlockset ls; 
+        print_space ();
+        pr x'; pr ":"; printty_Type false ctx tyT1; pr ".";
+        if (small t2) && not outer then break() else print_space();
+        printtm_Term outer ctx' t2;
+        cbox())
   | TmIf(fi, t1, t2, t3) ->
-       obox0();
-       pr "if ";
-       printtm_Term false ctx t1;
-       print_space();
-       pr "then ";
-       printtm_Term false ctx t2;
-       print_space();
-       pr "else ";
-       printtm_Term false ctx t3;
-       cbox()
+      obox0();
+      pr "if ";
+      printtm_Term false ctx t1;
+      print_space();
+      pr "then ";
+      printtm_Term false ctx t2;
+      print_space();
+      pr "else ";
+      printtm_Term false ctx t3;
+      cbox()
   | TmLet(fi, x, t1, t2) ->
-       obox0();
-       pr "let "; pr x; pr " = "; 
-       printtm_Term false ctx t1;
-       print_space(); pr "in"; print_space();
-       printtm_Term false (addname ctx x) t2;
-       cbox()
+      obox0();
+      pr "let "; pr x; pr " = "; 
+      printtm_Term false ctx t1;
+      print_space(); pr "in"; print_space();
+      printtm_Term false (addname ctx x) t2;
+      cbox()
   | TmFix(fi, t1) ->
-       obox();
-       pr "fix "; 
-       printtm_Term false ctx t1;
-       cbox()
+      obox();
+      pr "fix "; 
+      printtm_Term false ctx t1;
+      cbox()
   | TmCase(_, t, cases) ->
       obox();
       pr "case "; printtm_Term false ctx t; pr " of";
@@ -432,11 +438,11 @@ let rec printtm_Term outer ctx t = match t with
       in p cases;
       cbox()
   | TmAssign(fi, t1, t2) ->
-       obox();
-       printtm_AppTerm false ctx t1;
-       pr " := ";
-       printtm_AppTerm false ctx t2;
-       cbox()
+      obox();
+      printtm_AppTerm false ctx t1;
+      pr " := ";
+      printtm_AppTerm false ctx t2;
+      cbox()
   | t -> printtm_AppTerm outer ctx t
 
 and printtm_AppTerm outer ctx t = match t with

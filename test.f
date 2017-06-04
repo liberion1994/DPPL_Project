@@ -17,6 +17,23 @@ let a = new Lock<T1,T2> in
 synchronized a in !(ref<T1> 0);
 /* 多加锁可以正常运行 */
 
+let m = new Lock<M> in
+  let g = lambda<M> z:Ref<M> Nat. z := succ (!z) in
+  let y1 = ref<M> 1 in
+  let t2 = ref<M> 2 in synchronized m in g y1;
+/* lambda可以声明需要的锁，内部访问时就不需要再获得该锁 */
+
+
+/*
+let t = new Lock<T1> in
+  let f1 = lambda f:Unit->Nat. synchronized t in f unit in
+    let f2 = lambda _:Unit. synchronized t in 0 in
+      f1 f2;
+/* application还是有问题，不知道一个abstraction会synchronize什么锁，需要传出来，但传出来又可能已经过了绑定了 */
+*/
+
+/* abstraction 可以声明自己需要什么锁，这些锁只要保证在application的时候拿到就可以 */
+
 let a = new Lock<T1> in
   synchronized a in 
     synchronized a in 

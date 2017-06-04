@@ -7,6 +7,7 @@ open Support.Error
 type lockset
 val appendlock : string -> lockset -> lockset
 val newlockset : string -> lockset
+val emptylockset: lockset
 val maplockset : (string -> 'a) -> lockset -> 'a list
 val interlockset : lockset -> lockset -> lockset
 val unionlockset : lockset -> lockset -> lockset
@@ -19,7 +20,7 @@ type ty =
   | TyTop
   | TyBot
   | TyId of string
-  | TyArr of ty * ty
+  | TyArr of ty * ty * lockset
   | TyRecord of (string * ty) list
   | TyVariant of (string * ty) list
   | TyRef of ty * lockset
@@ -33,7 +34,7 @@ type ty =
 
 type term =
     TmVar of info * int * int
-  | TmAbs of info * string * ty * term
+  | TmAbs of info * string * ty * term * lockset
   | TmApp of info * term * term
   | TmTrue of info
   | TmFalse of info

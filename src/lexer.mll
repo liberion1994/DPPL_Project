@@ -25,7 +25,6 @@ let reservedWords = [
   ("let", fun i -> Parser.LET i);
   ("in", fun i -> Parser.IN i);
   ("fix", fun i -> Parser.FIX i);
-  ("letrec", fun i -> Parser.LETREC i);
   ("case", fun i -> Parser.CASE i);
   ("of", fun i -> Parser.OF i);
   ("as", fun i -> Parser.AS i);
