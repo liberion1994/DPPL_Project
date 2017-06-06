@@ -191,7 +191,6 @@ let rec eval1 (ctx,locks) t = match t with
       let channel = Event.new_channel () in
       let th = Thread.create (fun _ ->
         try let t1' = eval (ctx,locks) t1 in
-          (* should communicate to set store here *)
           let e = Event.send channel t1' in 
           let _ = Event.sync e in ()
         with NoRuleApplies -> 

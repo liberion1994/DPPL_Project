@@ -14,7 +14,7 @@ if true then t1 else t2;
 /* ref的join -- <loc #0> : Ref<T1,T2,T3> Nat */
 
 let a = new Lock<T1,T2> in
-synchronized a in !(ref<T1> 0);
+  synchronized a in !(ref<T1> 0);
 /* 多加锁可以正常运行 */
 
 
@@ -63,9 +63,13 @@ let t = new Lock<T1> in
   f1 f2;
 /* 报错，bind abstraction without explcit declaring forbidden lock (which may cause dead lock): T1 */
 
-/* 在var bind的时候，如果bind的是arrowtype，必须显式地指明该abstraction不能用哪些lock */
-
-
+let t1 = new Lock<T1> in
+let t2 = new Lock<T2> in
+  let f1 = lambda f:Unit <T2> -> Nat. 
+    synchronized t2 in f unit in
+  let f2 = lambda<T2> _:Unit. synchronized t1 in 0 in
+  f1 f2;
+/* 报错，死锁 */
 
 let x = new Lock<X> in
 let y = new Lock<X> in
