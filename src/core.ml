@@ -398,17 +398,8 @@ let rec typecheck (ctx,permissions,locks,minlock) t =
     TmInert(fi,tyT) ->
       tyT
   | TmVar(fi,i,_) -> 
-      let tyT = getTypeFromContext fi ctx i in (match tyT with
-          TyArr(tyT1,tyT2,ls) -> 
-            let alreadyheld = StringSet.fold (fun p r -> 
-              if existlock p ls then r
-              else (r ^ " " ^ p)) permissions "" in
-            if alreadyheld = "" then 
-              tyT
-            else 
-              error fi ("bind abstraction without explcit declaring forbidden lock (which may cause dead lock):" ^ alreadyheld)
-        | _ -> 
-            tyT)
+      let tyT = getTypeFromContext fi ctx i in tyT
+        
   | TmAbs(fi,x,tyT1,t2,ls) ->
       let ctx' = addbinding ctx x (VarBind(tyT1)) in
       let permissions',minlock' = 
@@ -426,7 +417,13 @@ let rec typecheck (ctx,permissions,locks,minlock) t =
               let unheld = foldlockset (fun l r -> 
                 if existPermission l permissions then r
                 else (r ^ " " ^ l)) ls "" in
-              if unheld = "" then tyT12
+              if unheld = "" then 
+                let alreadyheld = StringSet.fold (fun p r -> 
+                    if existlock p ls then r
+                    else (r ^ " " ^ p)) permissions "" in
+                if alreadyheld = "" then tyT12
+                else 
+                    error fi ("bind abstraction without explcit declaring forbidden lock (which may cause dead lock):" ^ alreadyheld)
               else error fi ("Application without holding the lock:" ^ unheld)
             else error fi "parameter type mismatch" 
         | TyBot -> TyBot
